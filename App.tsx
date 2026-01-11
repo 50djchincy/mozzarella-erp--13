@@ -12,10 +12,14 @@ import {
   Menu,
   X,
   Bell,
-  UserCircle
+  UserCircle,
+  LogOut,
+  Loader2
 } from 'lucide-react';
 import { ViewType, UserRole, User, Account, Customer, AccountType } from './types';
 import app from './firebase';
+import { AuthProvider, useAuth } from './components/AuthContext';
+import LoginPage from './components/LoginPage';
 import DashboardView from './components/DashboardView';
 import MoneyLabView from './components/MoneyLabView';
 import DailyOpsView from './components/DailyOpsView';
@@ -25,17 +29,10 @@ import SettlementView from './components/SettlementView';
 import ReportsView from './components/ReportsView';
 import SettingsView from './components/SettingsView';
 
-const App: React.FC = () => {
+const AppContent: React.FC = () => {
+  const { user, loading, logout } = useAuth();
   const [activeView, setActiveView] = useState<ViewType>('dashboard');
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
-
-  useEffect(() => {
-    if (app) {
-      console.log("🔥 Firebase Initialized successfully:", app.name);
-    } else {
-      console.error("❌ Firebase failed to initialize");
-    }
-  }, []);
 
   // Lifted state for the whole app demo
   const [accounts, setAccounts] = useState<Account[]>([
@@ -46,11 +43,18 @@ const App: React.FC = () => {
   ]);
   const [customers, setCustomers] = useState<Customer[]>([]);
 
-  const [currentUser, setCurrentUser] = useState<User>({
-    id: '1',
-    name: 'Admin User',
-    role: UserRole.ADMIN
-  });
+  if (loading) {
+    return (
+      <div className="h-screen w-screen bg-slate-950 flex flex-col items-center justify-center">
+        <Loader2 size={48} className="text-indigo-500 animate-spin mb-4" />
+        <p className="text-slate-400 font-medium animate-pulse">Initializing Mozzarella ERP...</p>
+      </div>
+    );
+  }
+
+  if (!user) {
+    return <LoginPage />;
+  }
 
   const navItems = [
     { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
@@ -66,13 +70,13 @@ const App: React.FC = () => {
   const renderContent = () => {
     switch (activeView) {
       case 'dashboard': return <DashboardView />;
-      case 'money-lab': return <MoneyLabView role={currentUser.role} accounts={accounts} setAccounts={setAccounts} />;
-      case 'daily-ops': return <DailyOpsView role={currentUser.role} accounts={accounts} customers={customers} />;
-      case 'staff-hub': return <StaffHubView role={currentUser.role} accounts={accounts} />;
-      case 'expenses': return <ExpensesView role={currentUser.role} accounts={accounts} currentUser={{ name: currentUser.name }} />;
-      case 'settlement': return <SettlementView role={currentUser.role} accounts={accounts} customers={customers} />;
+      case 'money-lab': return <MoneyLabView role={user.role} accounts={accounts} setAccounts={setAccounts} />;
+      case 'daily-ops': return <DailyOpsView role={user.role} accounts={accounts} customers={customers} />;
+      case 'staff-hub': return <StaffHubView role={user.role} accounts={accounts} />;
+      case 'expenses': return <ExpensesView role={user.role} accounts={accounts} currentUser={{ name: user.name }} />;
+      case 'settlement': return <SettlementView role={user.role} accounts={accounts} customers={customers} />;
       case 'reports': return <ReportsView />;
-      case 'settings': return <SettingsView currentUser={currentUser} onUpdateRole={(role) => setCurrentUser(prev => ({ ...prev, role }))} customers={customers} setCustomers={setCustomers} />;
+      case 'settings': return <SettingsView currentUser={user} onUpdateRole={(role) => { }} customers={customers} setCustomers={setCustomers} />;
       default: return <DashboardView />;
     }
   };
@@ -97,8 +101,8 @@ const App: React.FC = () => {
               key={item.id}
               onClick={() => setActiveView(item.id as ViewType)}
               className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all duration-200 ${activeView === item.id
-                  ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-500/30 font-bold'
-                  : 'text-slate-400 hover:bg-slate-800 hover:text-slate-200'
+                ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-500/30 font-bold'
+                : 'text-slate-400 hover:bg-slate-800 hover:text-slate-200'
                 }`}
             >
               <item.icon size={20} />
@@ -107,16 +111,23 @@ const App: React.FC = () => {
           ))}
         </nav>
 
-        <div className="p-6 border-t border-slate-800">
+        <div className="p-6 border-t border-slate-800 space-y-4">
           <div className="flex items-center gap-3 p-3 rounded-xl bg-slate-800/50">
             <div className="w-10 h-10 rounded-full bg-slate-700 flex items-center justify-center overflow-hidden">
               <UserCircle size={24} className="text-slate-400" />
             </div>
             <div className="flex-1 min-w-0">
-              <p className="text-sm font-semibold truncate text-white">{currentUser.name}</p>
-              <p className="text-[10px] text-slate-500 uppercase font-black tracking-widest">{currentUser.role}</p>
+              <p className="text-sm font-semibold truncate text-white">{user.name}</p>
+              <p className="text-[10px] text-slate-500 uppercase font-black tracking-widest">{user.role}</p>
             </div>
           </div>
+          <button
+            onClick={logout}
+            className="w-full flex items-center gap-3 px-4 py-3 rounded-xl text-rose-400 hover:bg-rose-500/10 transition-colors"
+          >
+            <LogOut size={20} />
+            <span className="font-medium">Logout</span>
+          </button>
         </div>
       </aside>
 
@@ -207,8 +218,8 @@ const App: React.FC = () => {
                     setIsSidebarOpen(false);
                   }}
                   className={`w-full flex items-center gap-4 px-4 py-4 rounded-xl transition-all ${activeView === item.id
-                      ? 'bg-indigo-600 text-white shadow-lg'
-                      : 'text-slate-400 hover:bg-slate-800'
+                    ? 'bg-indigo-600 text-white shadow-lg'
+                    : 'text-slate-400 hover:bg-slate-800'
                     }`}
                 >
                   <item.icon size={22} />
@@ -217,21 +228,36 @@ const App: React.FC = () => {
               ))}
             </nav>
 
-            <div className="p-6 bg-slate-800/30 m-4 rounded-2xl">
-              <div className="flex items-center gap-3">
+            <div className="p-6 border-t border-slate-800 space-y-4">
+              <div className="flex items-center gap-3 p-3 rounded-xl bg-slate-800/50">
                 <div className="w-12 h-12 rounded-full bg-indigo-500/20 flex items-center justify-center">
                   <UserCircle size={32} className="text-indigo-400" />
                 </div>
                 <div>
-                  <p className="font-bold text-white">{currentUser.name}</p>
-                  <p className="text-xs text-slate-500 font-black uppercase tracking-widest">{currentUser.role}</p>
+                  <p className="font-bold text-white">{user.name}</p>
+                  <p className="text-xs text-slate-500 font-black uppercase tracking-widest">{user.role}</p>
                 </div>
               </div>
+              <button
+                onClick={logout}
+                className="w-full flex items-center gap-3 px-4 py-3 rounded-xl text-rose-400 hover:bg-rose-500/10 transition-colors"
+              >
+                <LogOut size={20} />
+                <span className="font-medium">Logout</span>
+              </button>
             </div>
           </div>
         </div>
       )}
     </div>
+  );
+};
+
+const App: React.FC = () => {
+  return (
+    <AuthProvider>
+      <AppContent />
+    </AuthProvider>
   );
 };
 
