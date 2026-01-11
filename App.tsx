@@ -17,7 +17,6 @@ import {
   Loader2
 } from 'lucide-react';
 import { ViewType, UserRole, User, Account, Customer, AccountType } from './types';
-import app from './firebase';
 import { AuthProvider, useAuth } from './components/AuthContext';
 import LoginPage from './components/LoginPage';
 import DashboardView from './components/DashboardView';
@@ -28,20 +27,42 @@ import ExpensesView from './components/ExpensesView';
 import SettlementView from './components/SettlementView';
 import ReportsView from './components/ReportsView';
 import SettingsView from './components/SettingsView';
+import { useFirestoreSync } from './hooks/useFirestoreSync';
 
 const AppContent: React.FC = () => {
-  const { user, loading, logout } = useAuth();
+  const { user, loading: authLoading, logout } = useAuth();
   const [activeView, setActiveView] = useState<ViewType>('dashboard');
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
 
-  // Lifted state for the whole app demo
-  const [accounts, setAccounts] = useState<Account[]>([
-    { id: 'pc-1', name: 'Main Till', type: AccountType.PETTY_CASH, startingBalance: 5000000, currentBalance: 5000000 },
-    { id: 'bank-1', name: 'Chase Business', type: AccountType.ASSETS, startingBalance: 10000000, currentBalance: 10000000 },
-    { id: 'rec-1', name: 'UberEats Receivable', type: AccountType.RECEIVABLE, startingBalance: 0, currentBalance: 0 },
-    { id: 'card-rec', name: 'Terminal Receivable', type: AccountType.RECEIVABLE, startingBalance: 0, currentBalance: 0 }
-  ]);
-  const [customers, setCustomers] = useState<Customer[]>([]);
+  // Firestore-backed state
+  const {
+    data: accounts,
+    loading: accountsLoading,
+    addOrUpdateItem: addOrUpdateAccount
+  } = useFirestoreSync<Account>('accounts', [], 'name');
+
+  const {
+    data: customers,
+    loading: customersLoading,
+    addOrUpdateItem: addOrUpdateCustomer
+  } = useFirestoreSync<Customer>('customers', [], 'name');
+
+  // Multi-state loading check
+  const loading = authLoading || accountsLoading || customersLoading;
+
+  // Initial seeding of demo data if database is empty
+  useEffect(() => {
+    if (!loading && user && accounts.length === 0) {
+      console.log("🌱 Seeding demo accounts to Firestore...");
+      const demoAccounts: Account[] = [
+        { id: 'pc-1', name: 'Main Till', type: AccountType.PETTY_CASH, startingBalance: 5000000, currentBalance: 5000000 },
+        { id: 'bank-1', name: 'Chase Business', type: AccountType.ASSETS, startingBalance: 10000000, currentBalance: 10000000 },
+        { id: 'rec-1', name: 'UberEats Receivable', type: AccountType.RECEIVABLE, startingBalance: 0, currentBalance: 0 },
+        { id: 'card-rec', name: 'Terminal Receivable', type: AccountType.RECEIVABLE, startingBalance: 0, currentBalance: 0 }
+      ];
+      demoAccounts.forEach(acc => addOrUpdateAccount(acc));
+    }
+  }, [loading, user, accounts.length, addOrUpdateAccount]);
 
   if (loading) {
     return (
@@ -70,13 +91,13 @@ const AppContent: React.FC = () => {
   const renderContent = () => {
     switch (activeView) {
       case 'dashboard': return <DashboardView />;
-      case 'money-lab': return <MoneyLabView role={user.role} accounts={accounts} setAccounts={setAccounts} />;
+      case 'money-lab': return <MoneyLabView role={user.role} accounts={accounts} setAccounts={() => { }} />;
       case 'daily-ops': return <DailyOpsView role={user.role} accounts={accounts} customers={customers} />;
       case 'staff-hub': return <StaffHubView role={user.role} accounts={accounts} />;
       case 'expenses': return <ExpensesView role={user.role} accounts={accounts} currentUser={{ name: user.name }} />;
       case 'settlement': return <SettlementView role={user.role} accounts={accounts} customers={customers} />;
       case 'reports': return <ReportsView />;
-      case 'settings': return <SettingsView currentUser={user} onUpdateRole={(role) => { }} customers={customers} setCustomers={setCustomers} />;
+      case 'settings': return <SettingsView currentUser={user} onUpdateRole={(role) => { }} customers={customers} setCustomers={() => { }} />;
       default: return <DashboardView />;
     }
   };
