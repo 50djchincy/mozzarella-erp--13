@@ -14,13 +14,20 @@ import { db } from '../firebase';
 export function useFirestoreSync<T extends { id: string }>(
     collectionName: string,
     initialData: T[] = [],
-    sortField?: string
+    sortField?: string,
+    options?: { enabled?: boolean }
 ) {
+    const { enabled = true } = options || {};
     const [data, setData] = useState<T[]>(initialData);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<Error | null>(null);
 
     useEffect(() => {
+        if (!enabled) {
+            setLoading(false);
+            return;
+        }
+
         let q = collection(db, collectionName);
 
         // Simple sort if requested
@@ -44,7 +51,7 @@ export function useFirestoreSync<T extends { id: string }>(
         );
 
         return () => unsubscribe();
-    }, [collectionName, sortField]);
+    }, [collectionName, sortField, enabled]);
 
     const addOrUpdateItem = async (item: T) => {
         try {

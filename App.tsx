@@ -39,13 +39,13 @@ const AppContent: React.FC = () => {
     data: accounts,
     loading: accountsLoading,
     addOrUpdateItem: addOrUpdateAccount
-  } = useFirestoreSync<Account>('accounts', [], 'name');
+  } = useFirestoreSync<Account>('accounts', [], 'name', { enabled: !!user });
 
   const {
     data: customers,
     loading: customersLoading,
     addOrUpdateItem: addOrUpdateCustomer
-  } = useFirestoreSync<Customer>('customers', [], 'name');
+  } = useFirestoreSync<Customer>('customers', [], 'name', { enabled: !!user });
 
   // Multi-state loading check
   const loading = authLoading || accountsLoading || customersLoading;
