@@ -1,0 +1,7 @@
+{
+  "name": "Mozzarella ERP",
+  "description": "A specialized financial management application for restaurants and retail, focused on precise integer-based accounting and operational workflows.",
+  "requestFramePermissions": [
+    "camera"
+  ]
+}

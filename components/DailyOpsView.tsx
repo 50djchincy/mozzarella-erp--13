@@ -1,0 +1,468 @@
+
+import React, { useState, useMemo } from 'react';
+import { 
+  Play, 
+  CheckCircle2, 
+  AlertCircle, 
+  Coins, 
+  Calculator, 
+  Lock, 
+  Plus, 
+  ArrowRight, 
+  History, 
+  Settings2,
+  ChevronRight,
+  UserPlus,
+  ArrowUpRight,
+  Banknote,
+  DollarSign,
+  AlertTriangle,
+  Zap
+} from 'lucide-react';
+// Fixed: Removed non-existent DailyOpsSession from imports
+import { UserRole, Account, Customer, AccountType, DailyOpsConfig } from '../types';
+import { formatCurrency, toCents } from '../utils';
+
+interface Props {
+  role: UserRole;
+  accounts: Account[];
+  customers: Customer[];
+}
+
+const DailyOpsView: React.FC<Props> = ({ role, accounts, customers }) => {
+  const [activeTab, setActiveTab] = useState<'wizard' | 'history' | 'editor'>('wizard');
+  const [step, setStep] = useState(1);
+  const isAdmin = role === UserRole.ADMIN;
+
+  // Configuration Mapping (Mock - would usually be in DB)
+  const [config, setConfig] = useState<DailyOpsConfig>({
+    incomeAccountId: accounts.find(a => a.type === AccountType.INCOME)?.id || '',
+    cardAccountId: accounts.find(a => a.type === AccountType.RECEIVABLE)?.id || '',
+    partnerAccountId: accounts.find(a => a.type === AccountType.RECEIVABLE)?.id || '',
+    foreignCurrencyAccountId: accounts.find(a => a.type === AccountType.ASSETS)?.id || '',
+    customerReceivableAccountId: accounts.find(a => a.type === AccountType.RECEIVABLE)?.id || ''
+  });
+
+  // Wizard Data State
+  const [isShiftOpen, setIsShiftOpen] = useState(false);
+  const [businessDate, setBusinessDate] = useState(new Date().toISOString().split('T')[0]);
+  const [moneyAdded, setMoneyAdded] = useState(0);
+  const [selectedAssetSource, setSelectedAssetSource] = useState('');
+  
+  const [totalSales, setTotalSales] = useState(0);
+  const [cardPayments, setCardPayments] = useState(0);
+  const [partnerSales, setPartnerSales] = useState(0);
+  const [foreignCurrency, setForeignCurrency] = useState(0);
+  const [fcNote, setFcNote] = useState('');
+  const [expensesTotal, setExpensesTotal] = useState(0);
+  
+  const [customerCredits, setCustomerCredits] = useState<{custId: string, amount: number}[]>([]);
+
+  // Denomination State (in units, not cents)
+  const [counts, setCounts] = useState<Record<string, number>>({
+    '5000': 0, '2000': 0, '1000': 0, '500': 0, '100': 0, '50': 0, '20': 0, 'coins': 0
+  });
+
+  // Calculated Logic
+  const pettyCashAccount = accounts.find(a => a.type === AccountType.PETTY_CASH);
+  const openingBalance = pettyCashAccount?.currentBalance || 0;
+  
+  const totalCustomerCredit = useMemo(() => customerCredits.reduce((acc, c) => acc + c.amount, 0), [customerCredits]);
+  
+  const targetRegisterBalance = useMemo(() => {
+    // Formula: (Petty cash balance + money added + Total Sales) - (card payments + Partner sales + Customer Credit + Foreign currency + expenses)
+    return (openingBalance + moneyAdded + totalSales) - (cardPayments + partnerSales + totalCustomerCredit + foreignCurrency + expensesTotal);
+  }, [openingBalance, moneyAdded, totalSales, cardPayments, partnerSales, totalCustomerCredit, foreignCurrency, expensesTotal]);
+
+  // Fixed: Explicitly cast Object.entries to resolve 'unknown' type errors during arithmetic operations
+  const physicalTotal = useMemo(() => {
+    return (Object.entries(counts) as [string, number][]).reduce((acc, [den, count]) => {
+      if (den === 'coins') return acc + count; // assumed coins entered as total cents/val
+      return acc + (parseInt(den) * count);
+    }, 0);
+  }, [counts]);
+
+  const variance = physicalTotal - targetRegisterBalance;
+
+  const handleOpenShift = () => {
+    setIsShiftOpen(true);
+    setStep(2);
+  };
+
+  const addCustomerCreditRow = () => {
+    setCustomerCredits([...customerCredits, { custId: '', amount: 0 }]);
+  };
+
+  const updateCustomerCredit = (index: number, field: 'custId' | 'amount', value: any) => {
+    const updated = [...customerCredits];
+    updated[index] = { ...updated[index], [field]: value };
+    setCustomerCredits(updated);
+  };
+
+  const renderWizard = () => {
+    if (!isShiftOpen) {
+      return (
+        <div className="flex flex-col items-center justify-center py-24 text-center glass rounded-[3rem] space-y-8 animate-in zoom-in-95 duration-500">
+           <div className="w-24 h-24 bg-indigo-600 rounded-3xl flex items-center justify-center shadow-2xl shadow-indigo-500/40 relative group">
+              <Play size={40} className="text-white fill-white group-hover:scale-110 transition-transform" />
+              <div className="absolute inset-0 bg-indigo-500 rounded-3xl animate-ping opacity-20"></div>
+           </div>
+           <div className="space-y-2">
+             <h2 className="text-4xl font-black">Daily Shift is Closed</h2>
+             <p className="text-slate-400 max-w-sm mx-auto">Initialize today's register to start recording sales and expenses.</p>
+           </div>
+           <button 
+             onClick={handleOpenShift}
+             className="bg-indigo-600 hover:bg-indigo-500 text-white font-black px-12 py-5 rounded-[2rem] shadow-xl shadow-indigo-500/20 transition-all flex items-center gap-4 text-xl"
+           >
+             Open Shift <ArrowRight size={24} />
+           </button>
+        </div>
+      );
+    }
+
+    return (
+      <div className="space-y-8 animate-in slide-in-from-right-8 duration-500">
+        {/* Wizard Header */}
+        <div className="flex items-center justify-between glass p-6 rounded-[2rem]">
+          <div className="flex gap-2">
+            {[1, 2, 3, 4, 5].map(s => (
+              <div key={s} className={`h-2 w-12 rounded-full transition-all ${step >= s ? 'bg-indigo-500' : 'bg-slate-800'}`}></div>
+            ))}
+          </div>
+          <span className="text-xs font-black uppercase tracking-widest text-slate-500">Step {step} of 5</span>
+        </div>
+
+        <div className="glass p-8 rounded-[3rem] shadow-2xl relative">
+          {/* Step 1: Open Shift details (re-entering context if needed) */}
+          {step === 2 && (
+            <div className="space-y-8">
+               <div className="text-center">
+                 <h3 className="text-3xl font-black">Open Shift Initialization</h3>
+                 <p className="text-slate-500 mt-2">Verify starting petty cash and business date.</p>
+               </div>
+
+               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                 <div className="bg-slate-900/50 p-6 rounded-3xl border border-slate-800">
+                   <p className="text-[10px] font-black uppercase text-slate-500 tracking-widest mb-2">Petty Cash Balance</p>
+                   <p className="text-3xl font-black text-white">{formatCurrency(openingBalance)}</p>
+                 </div>
+                 <div className="space-y-2">
+                    <label className="text-[10px] font-black uppercase text-slate-500 tracking-widest px-2">Business Date</label>
+                    <input type="date" value={businessDate} onChange={e => setBusinessDate(e.target.value)} className="w-full bg-slate-900 border border-slate-800 rounded-2xl px-6 py-4 font-bold outline-none focus:ring-2 focus:ring-indigo-500" />
+                 </div>
+               </div>
+
+               <div className="glass p-8 rounded-3xl border-2 border-dashed border-slate-800">
+                 <div className="flex items-center justify-between mb-6">
+                    <h4 className="font-black uppercase tracking-widest text-sm flex items-center gap-2">
+                      <Plus size={18} className="text-indigo-400" /> Add Money to Petty Cash
+                    </h4>
+                 </div>
+                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div className="space-y-2">
+                      <label className="text-[10px] font-black text-slate-500 uppercase px-2">Source (Asset Accounts)</label>
+                      <select 
+                        value={selectedAssetSource}
+                        onChange={e => setSelectedAssetSource(e.target.value)}
+                        className="w-full bg-slate-900 border border-slate-800 rounded-2xl px-4 py-3 font-bold text-sm"
+                      >
+                        <option value="">Select Asset Source</option>
+                        {accounts.filter(a => a.type === AccountType.ASSETS).map(a => (
+                          <option key={a.id} value={a.id}>{a.name} ({formatCurrency(a.currentBalance)})</option>
+                        ))}
+                      </select>
+                    </div>
+                    <div className="space-y-2">
+                      <label className="text-[10px] font-black text-slate-500 uppercase px-2">Amount</label>
+                      <div className="relative">
+                        <span className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-500 font-bold">$</span>
+                        <input 
+                          type="number" 
+                          placeholder="0.00" 
+                          onChange={e => setMoneyAdded(toCents(e.target.value))}
+                          className="w-full bg-slate-900 border border-slate-800 rounded-2xl pl-8 pr-4 py-3 font-bold"
+                        />
+                      </div>
+                    </div>
+                 </div>
+               </div>
+            </div>
+          )}
+
+          {/* Step 2: Expenses */}
+          {step === 3 && (
+            <div className="space-y-8">
+               <div className="text-center">
+                 <h3 className="text-3xl font-black">Daily Expenses</h3>
+                 <p className="text-slate-500 mt-2">Enter any expenses paid from the till today.</p>
+               </div>
+               <div className="space-y-4">
+                  <div className="relative">
+                    <span className="absolute left-6 top-1/2 -translate-y-1/2 text-slate-500 font-black text-2xl">$</span>
+                    <input 
+                      type="number" 
+                      placeholder="Enter total expenses" 
+                      onChange={e => setExpensesTotal(toCents(e.target.value))}
+                      className="w-full bg-slate-900 border border-slate-800 rounded-3xl pl-12 pr-8 py-10 text-4xl font-black focus:ring-2 focus:ring-indigo-500 outline-none"
+                    />
+                  </div>
+                  <p className="text-center text-slate-500 text-sm font-bold italic">This will be deducted from your final cash count.</p>
+               </div>
+            </div>
+          )}
+
+          {/* Step 3: Money Distribution */}
+          {step === 4 && (
+            <div className="space-y-10">
+               <div className="text-center">
+                 <h3 className="text-3xl font-black">Money Distribution</h3>
+                 <p className="text-slate-500 mt-2">Categorize today's revenue streams.</p>
+               </div>
+
+               <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+                 <div className="space-y-6">
+                   <div className="space-y-2">
+                     <label className="text-[10px] font-black uppercase text-indigo-400 tracking-widest px-2">Total Gross Sales (POS)</label>
+                     <input type="number" onChange={e => setTotalSales(toCents(e.target.value))} placeholder="0.00" className="w-full bg-slate-900 border border-slate-800 rounded-2xl px-6 py-4 text-xl font-black" />
+                   </div>
+                   <div className="space-y-2">
+                     <label className="text-[10px] font-black uppercase text-slate-500 tracking-widest px-2">Card Payments</label>
+                     <input type="number" onChange={e => setCardPayments(toCents(e.target.value))} placeholder="0.00" className="w-full bg-slate-900 border border-slate-800 rounded-2xl px-6 py-4 font-bold" />
+                   </div>
+                   <div className="space-y-2">
+                     <label className="text-[10px] font-black uppercase text-slate-500 tracking-widest px-2">Partner Sales (Uber/Deliveroo)</label>
+                     <input type="number" onChange={e => setPartnerSales(toCents(e.target.value))} placeholder="0.00" className="w-full bg-slate-900 border border-slate-800 rounded-2xl px-6 py-4 font-bold" />
+                   </div>
+                   <div className="space-y-2">
+                     <label className="text-[10px] font-black uppercase text-slate-500 tracking-widest px-2">Foreign Currency</label>
+                     <div className="flex gap-2">
+                       <input type="number" onChange={e => setForeignCurrency(toCents(e.target.value))} placeholder="Amount" className="flex-1 bg-slate-900 border border-slate-800 rounded-2xl px-6 py-4 font-bold" />
+                       <input type="text" placeholder="Currency/Note" onChange={e => setFcNote(e.target.value)} className="flex-1 bg-slate-900 border border-slate-800 rounded-2xl px-6 py-4 font-bold" />
+                     </div>
+                   </div>
+                 </div>
+
+                 <div className="space-y-4">
+                    <div className="flex items-center justify-between">
+                       <label className="text-[10px] font-black uppercase text-slate-500 tracking-widest px-2">Customer Credit Entries</label>
+                       <button onClick={addCustomerCreditRow} className="text-indigo-400 font-bold text-xs flex items-center gap-1 hover:underline">
+                         <Plus size={14} /> Add Line
+                       </button>
+                    </div>
+                    <div className="space-y-3 max-h-[300px] overflow-y-auto pr-2 custom-scrollbar">
+                       {customerCredits.map((cred, idx) => (
+                         <div key={idx} className="flex gap-2 animate-in fade-in slide-in-from-left-2 duration-200">
+                            <select 
+                              value={cred.custId} 
+                              onChange={e => updateCustomerCredit(idx, 'custId', e.target.value)}
+                              className="flex-[2] bg-slate-900 border border-slate-800 rounded-xl px-4 py-3 text-xs font-bold"
+                            >
+                              <option value="">Select Customer</option>
+                              {customers.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+                            </select>
+                            <input 
+                              type="number" 
+                              placeholder="Amount" 
+                              onChange={e => updateCustomerCredit(idx, 'amount', toCents(e.target.value))}
+                              className="flex-1 bg-slate-900 border border-slate-800 rounded-xl px-4 py-3 text-xs font-bold"
+                            />
+                         </div>
+                       ))}
+                       {customerCredits.length === 0 && <p className="text-slate-600 text-xs text-center py-4 border border-dashed border-slate-800 rounded-xl">No credit entries</p>}
+                    </div>
+                 </div>
+               </div>
+            </div>
+          )}
+
+          {/* Step 4: Logic & Counter */}
+          {step === 5 && (
+            <div className="space-y-8">
+               <div className="text-center">
+                 <h3 className="text-3xl font-black">Final Cash Count</h3>
+                 <p className="text-slate-500 mt-2">Count your physical cash and check for variance.</p>
+               </div>
+
+               <div className="grid grid-cols-1 lg:grid-cols-2 gap-10">
+                 {/* Calculator */}
+                 <div className="grid grid-cols-2 gap-4">
+                    {[5000, 2000, 1000, 500, 100, 50, 20].map(den => (
+                      <div key={den} className="bg-slate-900/50 p-4 rounded-3xl border border-slate-800 flex flex-col items-center group">
+                        <span className="text-indigo-400 font-black mb-2">${den/100}</span>
+                        <input 
+                          type="number" 
+                          placeholder="0" 
+                          value={counts[den.toString()] || ''}
+                          onChange={e => setCounts({...counts, [den.toString()]: parseInt(e.target.value) || 0})}
+                          className="w-full bg-slate-950 border-none rounded-2xl py-3 text-center text-xl font-black outline-none focus:ring-1 focus:ring-indigo-500"
+                        />
+                      </div>
+                    ))}
+                    <div className="bg-slate-900/50 p-4 rounded-3xl border border-slate-800 flex flex-col items-center">
+                        <span className="text-emerald-400 font-black mb-2 uppercase text-[10px] tracking-widest">Coins Total</span>
+                        <input 
+                          type="number" 
+                          placeholder="Total Value" 
+                          onChange={e => setCounts({...counts, coins: toCents(e.target.value)})}
+                          className="w-full bg-slate-950 border-none rounded-2xl py-3 text-center text-xl font-black outline-none focus:ring-1 focus:ring-emerald-500"
+                        />
+                      </div>
+                 </div>
+
+                 {/* Results */}
+                 <div className="space-y-6">
+                    <div className="bg-slate-900 border border-slate-800 p-8 rounded-[2rem]">
+                       <div className="flex justify-between items-center mb-4">
+                         <span className="text-xs font-black uppercase text-slate-500 tracking-widest">Expected Balance (Formula)</span>
+                         <span className="text-lg font-black text-white">{formatCurrency(targetRegisterBalance)}</span>
+                       </div>
+                       <div className="flex justify-between items-center mb-8 pb-8 border-b border-slate-800">
+                         <span className="text-xs font-black uppercase text-slate-500 tracking-widest">Physical Count</span>
+                         <span className="text-lg font-black text-white">{formatCurrency(physicalTotal)}</span>
+                       </div>
+                       <div className="text-center space-y-2">
+                         <p className="text-[10px] font-black uppercase text-slate-400 tracking-widest">Variance</p>
+                         <h4 className={`text-5xl font-black ${variance === 0 ? 'text-emerald-400' : variance > 0 ? 'text-indigo-400' : 'text-rose-400'}`}>
+                           {variance > 0 ? '+' : ''}{formatCurrency(variance)}
+                         </h4>
+                         {variance !== 0 && (
+                           <p className="text-xs font-bold text-slate-500 mt-4 flex items-center justify-center gap-2">
+                             <AlertTriangle size={14} className="text-amber-500" /> Variance transaction will be recorded.
+                           </p>
+                         )}
+                       </div>
+                    </div>
+                    <div className="bg-indigo-600/10 border border-indigo-500/20 p-6 rounded-3xl">
+                       <p className="text-[10px] font-black uppercase text-indigo-400 tracking-widest mb-1 text-center">Final Petty Cash Post-Close</p>
+                       <p className="text-3xl font-black text-center text-white">{formatCurrency(physicalTotal)}</p>
+                    </div>
+                 </div>
+               </div>
+            </div>
+          )}
+
+          {/* Navigation */}
+          <div className="mt-12 flex flex-col sm:flex-row gap-4">
+            {step > 2 && (
+              <button 
+                onClick={() => setStep(step - 1)}
+                className="flex-1 py-5 text-slate-400 font-black uppercase tracking-widest text-xs border border-slate-800 rounded-3xl hover:text-white"
+              >
+                Back
+              </button>
+            )}
+            <button 
+              onClick={() => step === 5 ? setIsShiftOpen(false) : setStep(step + 1)}
+              className="flex-[2] bg-indigo-600 hover:bg-indigo-500 text-white font-black py-5 rounded-3xl shadow-xl shadow-indigo-500/20 transition-all text-lg uppercase tracking-widest"
+            >
+              {step === 5 ? 'Close Shift & Post to Ledger' : 'Continue'}
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  };
+
+  const renderHistory = () => (
+    <div className="glass rounded-[2.5rem] overflow-hidden animate-in fade-in duration-500">
+       <div className="p-8 border-b border-slate-800 flex items-center justify-between">
+         <h3 className="text-2xl font-black">Shift History</h3>
+         <button className="p-3 bg-slate-900 rounded-2xl text-slate-500 hover:text-white"><History size={20} /></button>
+       </div>
+       <div className="p-20 text-center space-y-4">
+         <div className="w-20 h-20 bg-slate-900 rounded-3xl flex items-center justify-center mx-auto text-slate-700">
+            <Calculator size={32} />
+         </div>
+         <p className="text-slate-500 font-bold">No historical shifts recorded yet.</p>
+       </div>
+    </div>
+  );
+
+  const renderEditor = () => (
+    <div className="space-y-8 animate-in fade-in duration-500">
+       <div className="glass p-10 rounded-[3rem]">
+          <div className="flex items-center gap-4 mb-8">
+            <div className="p-4 bg-indigo-600 rounded-3xl text-white">
+              <Settings2 size={24} />
+            </div>
+            <div>
+              <h3 className="text-2xl font-black">Daily Ops Configuration</h3>
+              <p className="text-slate-500 text-sm">Map business events to specific ledger accounts.</p>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+             <div className="space-y-4">
+                <label className="text-[10px] font-black uppercase text-slate-500 tracking-widest px-2">Primary Income Account</label>
+                <select className="w-full bg-slate-900 border border-slate-800 rounded-2xl px-6 py-4 font-bold" defaultValue={config.incomeAccountId}>
+                  {accounts.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
+                </select>
+             </div>
+             <div className="space-y-4">
+                <label className="text-[10px] font-black uppercase text-slate-500 tracking-widest px-2">Card Payments Asset</label>
+                <select className="w-full bg-slate-900 border border-slate-800 rounded-2xl px-6 py-4 font-bold" defaultValue={config.cardAccountId}>
+                   {accounts.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
+                </select>
+             </div>
+             <div className="space-y-4">
+                <label className="text-[10px] font-black uppercase text-slate-500 tracking-widest px-2">Partner Sales Receivable</label>
+                <select className="w-full bg-slate-900 border border-slate-800 rounded-2xl px-6 py-4 font-bold" defaultValue={config.partnerAccountId}>
+                   {accounts.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
+                </select>
+             </div>
+             <div className="space-y-4">
+                <label className="text-[10px] font-black uppercase text-slate-500 tracking-widest px-2">Foreign Currency Holder</label>
+                <select className="w-full bg-slate-900 border border-slate-800 rounded-2xl px-6 py-4 font-bold" defaultValue={config.foreignCurrencyAccountId}>
+                   {accounts.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
+                </select>
+             </div>
+          </div>
+
+          <button className="mt-12 w-full bg-slate-800 hover:bg-slate-700 py-5 rounded-3xl font-black uppercase tracking-widest transition-all">
+            Save Mapping Configuration
+          </button>
+       </div>
+
+       <div className="p-6 bg-amber-400/10 border border-amber-400/20 rounded-3xl flex items-start gap-4">
+          <AlertCircle className="text-amber-400 shrink-0" size={24} />
+          <div>
+            <h4 className="font-bold text-amber-400 mb-1 uppercase text-xs tracking-widest">Editor Access Only</h4>
+            <p className="text-sm text-slate-400 italic">This mapping defines where money flows during shift closure. Changes affect all future shift records.</p>
+          </div>
+       </div>
+    </div>
+  );
+
+  return (
+    <div className="space-y-8">
+      {/* Sub Navigation */}
+      <div className="flex flex-wrap gap-4 p-1 bg-slate-900 rounded-3xl w-fit border border-slate-800 mb-4">
+        <button onClick={() => setActiveTab('wizard')} className={`flex items-center gap-2 px-6 py-3 rounded-2xl font-black text-xs uppercase tracking-widest transition-all ${activeTab === 'wizard' ? 'bg-indigo-600 text-white shadow-lg' : 'text-slate-500 hover:text-slate-300'}`}>
+          <Zap size={16} /> Wizard
+        </button>
+        <button onClick={() => setActiveTab('history')} className={`flex items-center gap-2 px-6 py-3 rounded-2xl font-black text-xs uppercase tracking-widest transition-all ${activeTab === 'history' ? 'bg-indigo-600 text-white shadow-lg' : 'text-slate-500 hover:text-slate-300'}`}>
+          <History size={16} /> History
+        </button>
+        {isAdmin && (
+          <button onClick={() => setActiveTab('editor')} className={`flex items-center gap-2 px-6 py-3 rounded-2xl font-black text-xs uppercase tracking-widest transition-all ${activeTab === 'editor' ? 'bg-indigo-600 text-white shadow-lg' : 'text-slate-500 hover:text-slate-300'}`}>
+            <Settings2 size={16} /> Editor
+          </button>
+        )}
+      </div>
+
+      {activeTab === 'wizard' && renderWizard()}
+      {activeTab === 'history' && renderHistory()}
+      {activeTab === 'editor' && isAdmin && renderEditor()}
+      {activeTab === 'editor' && !isAdmin && (
+        <div className="py-20 text-center glass rounded-3xl border-rose-500/20">
+          <Lock size={40} className="mx-auto mb-4 text-rose-500 opacity-50" />
+          <h3 className="text-xl font-bold">Access Denied</h3>
+          <p className="text-slate-500">Daily Ops Editor is restricted to Administrators.</p>
+        </div>
+      )}
+    </div>
+  );
+};
+
+export default DailyOpsView;
