@@ -1,0 +1,8 @@
+[build]
+  command = "npm run build"
+  publish = "dist"
+
+[build.environment]
+  # Disable secret scanning for build output because Firebase API keys are false positives
+  # but they are necessary for the client-side app to function.
+  SECRETS_SCAN_SMART_DETECTION_ENABLED = "false"
