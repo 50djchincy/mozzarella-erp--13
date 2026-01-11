@@ -16,7 +16,7 @@ import {
   LogOut,
   Loader2
 } from 'lucide-react';
-import { ViewType, UserRole, User, Account, Customer, AccountType } from './types';
+import { ViewType, UserRole, User, Account, Customer } from './types';
 import { AuthProvider, useAuth } from './components/AuthContext';
 import LoginPage from './components/LoginPage';
 import DashboardView from './components/DashboardView';
@@ -50,19 +50,7 @@ const AppContent: React.FC = () => {
   // Multi-state loading check
   const loading = authLoading || accountsLoading || customersLoading;
 
-  // Initial seeding of demo data if database is empty
-  useEffect(() => {
-    if (!loading && user && accounts.length === 0) {
-      console.log("🌱 Seeding demo accounts to Firestore...");
-      const demoAccounts: Account[] = [
-        { id: 'pc-1', name: 'Main Till', type: AccountType.PETTY_CASH, startingBalance: 5000000, currentBalance: 5000000 },
-        { id: 'bank-1', name: 'Chase Business', type: AccountType.ASSETS, startingBalance: 10000000, currentBalance: 10000000 },
-        { id: 'rec-1', name: 'UberEats Receivable', type: AccountType.RECEIVABLE, startingBalance: 0, currentBalance: 0 },
-        { id: 'card-rec', name: 'Terminal Receivable', type: AccountType.RECEIVABLE, startingBalance: 0, currentBalance: 0 }
-      ];
-      demoAccounts.forEach(acc => addOrUpdateAccount(acc));
-    }
-  }, [loading, user, accounts.length, addOrUpdateAccount]);
+
 
   if (loading) {
     return (
