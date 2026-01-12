@@ -121,6 +121,23 @@ export interface ExpenseTemplate {
   details: string;
 }
 
+export interface DailyOpsSession {
+  id: string;
+  date: string;
+  closedAt: string;
+  openingBalance: number;
+  grossSales: number;
+  cardSales: number;
+  partnerSales: number;
+  customerCredit: number;
+  expenses: number;
+  moneyAdded: number;
+  theoreticalCash: number;
+  physicalCount: number;
+  variance: number;
+  user: string;
+}
+
 export type ViewType =
   | 'dashboard'
   | 'money-lab'

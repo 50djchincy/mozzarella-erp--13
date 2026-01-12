@@ -22,8 +22,9 @@ import {
 import ExpenseEntryForm from './ExpenseEntryForm';
 import QuickExpenses from './QuickExpenses';
 // Fixed: Removed non-existent DailyOpsSession from imports
-import { UserRole, Account, Customer, AccountType, DailyOpsConfig, ExpenseCategory, Vendor, ExpenseTemplate, ExpenseTransaction } from '../types';
+import { UserRole, Account, Customer, AccountType, DailyOpsConfig, ExpenseCategory, Vendor, ExpenseTemplate, ExpenseTransaction, DailyOpsSession } from '../types';
 import { formatCurrency, toCents } from '../utils';
+import { defaultCategories } from '../constants';
 
 interface Props {
   role: UserRole;
@@ -42,6 +43,8 @@ interface Props {
   onSaveCategory?: (category: ExpenseCategory) => Promise<void>;
   onSaveVendor?: (vendor: Vendor) => Promise<void>;
   onSaveTemplate?: (template: ExpenseTemplate) => Promise<void>;
+  sessions?: DailyOpsSession[];
+  onSaveSession?: (session: DailyOpsSession) => Promise<void>;
 }
 
 const DailyOpsView: React.FC<Props> = ({
@@ -50,9 +53,10 @@ const DailyOpsView: React.FC<Props> = ({
   customers,
   config: remoteConfig,
   currentUser,
-  categories = [],
+  categories: remoteCategories = [],
   vendors = [],
   templates = [],
+  sessions = [],
   onSaveConfig,
   onSaveAccount,
   onSaveCustomer,
@@ -60,7 +64,8 @@ const DailyOpsView: React.FC<Props> = ({
   onSaveExpense,
   onSaveCategory,
   onSaveVendor,
-  onSaveTemplate
+  onSaveTemplate,
+  onSaveSession
 }) => {
   const [activeTab, setActiveTab] = useState<'wizard' | 'history' | 'editor'>('wizard');
   const [step, setStep] = useState(1);
@@ -116,6 +121,19 @@ const DailyOpsView: React.FC<Props> = ({
   });
 
   // Calculated Logic
+  const categories = useMemo(() => {
+    const merged = [...defaultCategories];
+    remoteCategories?.forEach(remoteCat => {
+      const index = merged.findIndex(c => c.id === remoteCat.id);
+      if (index > -1) {
+        merged[index] = remoteCat;
+      } else {
+        merged.push(remoteCat);
+      }
+    });
+    return merged;
+  }, [remoteCategories]);
+
   const pettyCashAccount = accounts.find(a => a.type === AccountType.PETTY_CASH);
   const openingBalance = pettyCashAccount?.currentBalance || 0;
 
@@ -188,6 +206,17 @@ const DailyOpsView: React.FC<Props> = ({
       return;
     }
 
+    // Validation: Ensure mapped accounts exist if amounts are entered
+    if (cardTotal > 0 && !cardAcc) {
+      alert("You have entered Card Payments but haven't configured a 'Card Payments Asset' in the Daily Ops Editor. Please configure it first.");
+      return;
+    }
+
+    if (partnerTotal > 0 && !partnerAcc) {
+      alert("You have entered Partner Sales but haven't configured a 'Partner Sales Receivable' in the Daily Ops Editor. Please configure it first.");
+      return;
+    }
+
     try {
       // 3. Update Income Account (Credit Sales)
       await onSaveAccount({ ...incomeAcc, currentBalance: incomeAcc.currentBalance + totalSalesCents });
@@ -253,6 +282,36 @@ const DailyOpsView: React.FC<Props> = ({
         });
       }
 
+      // Entry 3: Record Card Sales
+      if (cardAcc && cardTotal > 0) {
+        await onAddLedgerEntry({
+          id: Math.random().toString(36).substr(2, 9),
+          desc: `Daily Ops Card Sales (${date})`,
+          account: cardAcc.name,
+          type: 'Income',
+          amount: cardTotal,
+          date,
+          time,
+          user: role,
+          status: 'Posted'
+        });
+      }
+
+      // Entry 4: Record Partner Sales
+      if (partnerAcc && partnerTotal > 0) {
+        await onAddLedgerEntry({
+          id: Math.random().toString(36).substr(2, 9),
+          desc: `Daily Ops Partner Sales (${date})`,
+          account: partnerAcc.name,
+          type: 'Income',
+          amount: partnerTotal,
+          date,
+          time,
+          user: role,
+          status: 'Posted'
+        });
+      }
+
       // Entry 3: Record Cash Variance
       if (variance !== 0) {
         await onAddLedgerEntry({
@@ -268,9 +327,40 @@ const DailyOpsView: React.FC<Props> = ({
         });
       }
 
-      alert("Shift Closed Successfully. Accounts and Customers Updated.");
+      // 8. Create Session Record (Persistence)
+      if (onSaveSession) {
+        const sessionReport: DailyOpsSession = {
+          id: Math.random().toString(36).substr(2, 9),
+          date: businessDate, // Use user-selected date
+          closedAt: new Date().toISOString(),
+          openingBalance,
+          grossSales: totalSales,
+          cardSales: cardTotal,
+          partnerSales: partnerTotal,
+          customerCredit: creditTotal,
+          expenses: sessionExpensesTotal, // Only tracks what was added in this session window
+          moneyAdded,
+          theoreticalCash,
+          physicalCount: physicalTotalCents,
+          variance,
+          user: currentUser?.name || 'Unknown'
+        };
+        await onSaveSession(sessionReport);
+      }
+
+      console.log("SUCCESS: Shift Closed and Persisted.");
+      alert(`Shift Closed Successfully!\n\nUpdated Accounts:\n- Income: +${formatCurrency(totalSales)}\n- Petty Cash: Set to ${formatCurrency(physicalTotalCents)}\n- Card Asset: +${formatCurrency(cardTotal)}\n- Partner Rec: +${formatCurrency(partnerTotal)}\n\nSession saved to History.`);
       setStep(1);
       setIsShiftOpen(false);
+      // Reset local state for next shift
+      setSessionExpenses([]);
+      setMoneyAdded(0);
+      setTotalSales(0);
+      setCardPayments(0);
+      setPartnerSales(0);
+      setForeignCurrency(0);
+      setCustomerCredits([]);
+
     } catch (e) {
       console.error("DEBUG: Error closing shift:", e);
       alert("Failed to save shift data. See console for details.");
@@ -570,11 +660,34 @@ const DailyOpsView: React.FC<Props> = ({
 
                     {/* Math Breakdown */}
                     <div className="mb-8 p-4 bg-slate-800/50 rounded-xl border border-dashed border-slate-700 space-y-2 text-[10px] text-slate-400 font-medium">
-                      <div className="flex justify-between">
-                        <span>Opening Balance (Live):</span>
-                        <span>{formatCurrency(openingBalance)}</span>
+                      <div className="flex justify-between text-slate-500">
+                        <span>System Balance (Start of Session):</span>
+                        <span>{formatCurrency(openingBalance + sessionExpensesTotal)}</span>
                       </div>
-                      <div className="flex justify-between">
+
+                      {/* Session Expenses Breakdown */}
+                      {sessionExpenses.length > 0 && (
+                        <div className="space-y-1">
+                          {/* Expenses Header */}
+                          {(Object.entries(sessionExpenses.reduce((acc, curr) => {
+                            const cat = curr.mainCategory || 'Uncategorized';
+                            acc[cat] = (acc[cat] || 0) + curr.amount;
+                            return acc;
+                          }, {} as Record<string, number>)) as [string, number][]).map(([cat, amt]) => (
+                            <div key={cat} className="flex justify-between text-rose-400">
+                              <span>- {cat} Exp:</span>
+                              <span>({formatCurrency(amt)})</span>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+
+                      <div className="flex justify-between border-t border-slate-700/50 pt-1 mt-1">
+                        <span className="font-bold text-slate-300"> Live Balance:</span>
+                        <span className="font-bold text-slate-300">{formatCurrency(openingBalance)}</span>
+                      </div>
+
+                      <div className="flex justify-between pt-2">
                         <span>+ Money Added:</span>
                         <span>{formatCurrency(moneyAdded)}</span>
                       </div>
@@ -586,23 +699,6 @@ const DailyOpsView: React.FC<Props> = ({
                         <span>- Non-Cash Payments:</span>
                         <span>({formatCurrency(cardPayments + partnerSales + totalCustomerCredit + foreignCurrency)})</span>
                       </div>
-
-                      {/* Session Expenses Breakdown */}
-                      {sessionExpenses.length > 0 && (
-                        <div className="pt-2 mt-2 border-t border-slate-700/50 space-y-1">
-                          <p className="text-[9px] uppercase tracking-widest text-slate-500 mb-1">Expenses (Included in Opening)</p>
-                          {(Object.entries(sessionExpenses.reduce((acc, curr) => {
-                            const cat = curr.mainCategory || 'Uncategorized';
-                            acc[cat] = (acc[cat] || 0) + curr.amount;
-                            return acc;
-                          }, {} as Record<string, number>)) as [string, number][]).map(([cat, amt]) => (
-                            <div key={cat} className="flex justify-between text-slate-300">
-                              <span>- {cat}</span>
-                              <span>{formatCurrency(amt)}</span>
-                            </div>
-                          ))}
-                        </div>
-                      )}
 
                       <div className="border-t border-slate-600 pt-2 flex justify-between font-bold text-white">
                         <span>= Target Cash:</span>
@@ -656,20 +752,63 @@ const DailyOpsView: React.FC<Props> = ({
     );
   };
 
-  const renderHistory = () => (
-    <div className="glass rounded-[2.5rem] overflow-hidden animate-in fade-in duration-500">
-      <div className="p-8 border-b border-slate-800 flex items-center justify-between">
-        <h3 className="text-2xl font-black">Shift History</h3>
-        <button className="p-3 bg-slate-900 rounded-2xl text-slate-500 hover:text-white"><History size={20} /></button>
-      </div>
-      <div className="p-20 text-center space-y-4">
-        <div className="w-20 h-20 bg-slate-900 rounded-3xl flex items-center justify-center mx-auto text-slate-700">
-          <Calculator size={32} />
+  const renderHistory = () => {
+    // Sort by date descending
+    const sortedSessions = [...sessions].sort((a, b) => new Date(b.closedAt).getTime() - new Date(a.closedAt).getTime());
+
+    return (
+      <div className="glass rounded-[2.5rem] overflow-hidden animate-in fade-in duration-500">
+        <div className="p-8 border-b border-slate-800 flex items-center justify-between">
+          <h3 className="text-2xl font-black">Shift History</h3>
+          <div className="flex gap-2">
+            <span className="px-4 py-2 bg-slate-800 rounded-full text-xs font-bold text-slate-400 uppercase tracking-widest">{sessions.length} Records</span>
+            <button className="p-3 bg-slate-900 rounded-2xl text-slate-500 hover:text-white"><History size={20} /></button>
+          </div>
         </div>
-        <p className="text-slate-500 font-bold">No historical shifts recorded yet.</p>
+
+        {sortedSessions.length === 0 ? (
+          <div className="p-20 text-center space-y-4">
+            <div className="w-20 h-20 bg-slate-900 rounded-3xl flex items-center justify-center mx-auto text-slate-700">
+              <Calculator size={32} />
+            </div>
+            <p className="text-slate-500 font-bold">No historical shifts recorded yet.</p>
+          </div>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-left">
+              <thead className="bg-slate-900/50">
+                <tr>
+                  <th className="px-6 py-4 text-[10px] font-black uppercase text-slate-500 tracking-widest">Date / Closed At</th>
+                  <th className="px-6 py-4 text-[10px] font-black uppercase text-slate-500 tracking-widest">User</th>
+                  <th className="px-6 py-4 text-[10px] font-black uppercase text-slate-500 tracking-widest text-right">Gross Sales</th>
+                  <th className="px-6 py-4 text-[10px] font-black uppercase text-slate-500 tracking-widest text-right">Expenses</th>
+                  <th className="px-6 py-4 text-[10px] font-black uppercase text-slate-500 tracking-widest text-right">Physical Count</th>
+                  <th className="px-6 py-4 text-[10px] font-black uppercase text-slate-500 tracking-widest text-right">Variance</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-800/50">
+                {sortedSessions.map((session) => (
+                  <tr key={session.id} className="hover:bg-slate-800/30 transition-colors">
+                    <td className="px-6 py-4">
+                      <div className="font-bold text-white">{session.date}</div>
+                      <div className="text-[10px] text-slate-500 font-medium">{new Date(session.closedAt).toLocaleTimeString()}</div>
+                    </td>
+                    <td className="px-6 py-4 text-xs font-bold text-slate-300">{session.user}</td>
+                    <td className="px-6 py-4 text-right font-bold text-white">{formatCurrency(session.grossSales)}</td>
+                    <td className="px-6 py-4 text-right font-bold text-rose-400">{session.expenses > 0 ? '-' : ''}{formatCurrency(session.expenses)}</td>
+                    <td className="px-6 py-4 text-right font-bold text-indigo-400">{formatCurrency(session.physicalCount)}</td>
+                    <td className={`px-6 py-4 text-right font-black ${session.variance === 0 ? 'text-emerald-500' : 'text-amber-500'}`}>
+                      {formatCurrency(session.variance)}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
       </div>
-    </div>
-  );
+    );
+  };
 
   const renderEditor = () => (
     <div className="space-y-8 animate-in fade-in duration-500">

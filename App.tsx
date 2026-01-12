@@ -16,7 +16,7 @@ import {
   LogOut,
   Loader2
 } from 'lucide-react';
-import { ViewType, UserRole, User, Account, Customer, DailyOpsConfig, Vendor, ExpenseCategory, ExpenseTransaction, ExpenseTemplate } from './types';
+import { ViewType, UserRole, User, Account, Customer, DailyOpsConfig, Vendor, ExpenseCategory, ExpenseTransaction, ExpenseTemplate, DailyOpsSession } from './types';
 import { AuthProvider, useAuth } from './components/AuthContext';
 import LoginPage from './components/LoginPage';
 import DashboardView from './components/DashboardView';
@@ -44,7 +44,8 @@ const AppContent: React.FC = () => {
   const {
     data: customers,
     loading: customersLoading,
-    addOrUpdateItem: addOrUpdateCustomer
+    addOrUpdateItem: addOrUpdateCustomer,
+    removeItem: deleteCustomer
   } = useFirestoreSync<Customer>('customers', [], 'name', { enabled: !!user });
 
   const {
@@ -110,6 +111,11 @@ const AppContent: React.FC = () => {
 
   const dailyOpsConfig = settings.find(s => s.id === 'dailyOps') as DailyOpsConfig;
 
+  const {
+    data: dailyOpsSessions,
+    addOrUpdateItem: addOrUpdateSession
+  } = useFirestoreSync<DailyOpsSession>('sessions', [], 'date', { enabled: !!user });
+
   const renderContent = () => {
     switch (activeView) {
       case 'dashboard': return <DashboardView accounts={accounts} />;
@@ -125,6 +131,7 @@ const AppContent: React.FC = () => {
             categories={expenseCategories}
             vendors={vendors}
             templates={expenseTemplates}
+            sessions={dailyOpsSessions}
             onSaveConfig={(cfg) => addOrUpdateSetting({ ...cfg, id: 'dailyOps' })}
             onSaveAccount={addOrUpdateAccount}
             onSaveCustomer={addOrUpdateCustomer}
@@ -133,6 +140,7 @@ const AppContent: React.FC = () => {
             onSaveCategory={addOrUpdateExpenseCategory}
             onSaveVendor={addOrUpdateVendor}
             onSaveTemplate={addOrUpdateExpenseTemplate}
+            onSaveSession={addOrUpdateSession}
           />
         );
       case 'staff-hub': return <StaffHubView role={user.role} accounts={accounts} />;
@@ -158,7 +166,13 @@ const AppContent: React.FC = () => {
         );
       case 'settlement': return <SettlementView role={user.role} accounts={accounts} customers={customers} />;
       case 'reports': return <ReportsView />;
-      case 'settings': return <SettingsView currentUser={user} onUpdateRole={(role) => { }} customers={customers} setCustomers={() => { }} />;
+      case 'settings': return <SettingsView
+        currentUser={user}
+        onUpdateRole={(role) => { }}
+        customers={customers}
+        onSaveCustomer={addOrUpdateCustomer}
+        onDeleteCustomer={deleteCustomer}
+      />;
       default: return <DashboardView />;
     }
   };

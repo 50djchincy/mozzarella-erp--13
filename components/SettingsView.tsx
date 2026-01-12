@@ -1,12 +1,12 @@
 
 import React, { useState } from 'react';
-import { 
-  Users as UsersIcon, 
-  ShieldCheck, 
-  UserPlus, 
-  ChevronRight, 
-  Lock, 
-  Plus, 
+import {
+  Users as UsersIcon,
+  ShieldCheck,
+  UserPlus,
+  ChevronRight,
+  Lock,
+  Plus,
   Trash2,
   CheckCircle2,
   AlertTriangle,
@@ -19,30 +19,35 @@ interface Props {
   currentUser: User;
   onUpdateRole: (role: UserRole) => void;
   customers: Customer[];
-  setCustomers: React.Dispatch<React.SetStateAction<Customer[]>>;
+  onSaveCustomer: (customer: Customer) => Promise<void>;
+  onDeleteCustomer?: (id: string) => Promise<void>;
 }
 
-const SettingsView: React.FC<Props> = ({ currentUser, onUpdateRole, customers, setCustomers }) => {
+const SettingsView: React.FC<Props> = ({ currentUser, onUpdateRole, customers, onSaveCustomer, onDeleteCustomer }) => {
   const [activeTab, setActiveTab] = useState<'customers' | 'privileges'>('privileges');
   const [newCustName, setNewCustName] = useState('');
   const [newCustBalance, setNewCustBalance] = useState('');
 
   const isAdmin = currentUser.role === UserRole.ADMIN;
 
-  const handleAddCustomer = () => {
+  const handleAddCustomer = async () => {
     if (!newCustName.trim()) return;
     const newCust: Customer = {
       id: Math.random().toString(36).substr(2, 9),
       name: newCustName,
       outstandingBalance: toCents(newCustBalance),
     };
-    setCustomers([...customers, newCust]);
+    await onSaveCustomer(newCust);
     setNewCustName('');
     setNewCustBalance('');
   };
 
-  const removeCustomer = (id: string) => {
-    setCustomers(customers.filter(c => c.id !== id));
+  const removeCustomer = async (id: string) => {
+    if (onDeleteCustomer) {
+      if (window.confirm("Are you sure you want to delete this customer?")) {
+        await onDeleteCustomer(id);
+      }
+    }
   };
 
   const privilegeMatrix = [
@@ -57,19 +62,17 @@ const SettingsView: React.FC<Props> = ({ currentUser, onUpdateRole, customers, s
   return (
     <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
       <div className="flex gap-4 p-1 bg-slate-900 rounded-2xl w-fit border border-slate-800">
-        <button 
+        <button
           onClick={() => setActiveTab('privileges')}
-          className={`flex items-center gap-2 px-6 py-2.5 rounded-xl font-bold text-sm transition-all ${
-            activeTab === 'privileges' ? 'bg-indigo-600 text-white shadow-lg' : 'text-slate-400 hover:text-slate-200'
-          }`}
+          className={`flex items-center gap-2 px-6 py-2.5 rounded-xl font-bold text-sm transition-all ${activeTab === 'privileges' ? 'bg-indigo-600 text-white shadow-lg' : 'text-slate-400 hover:text-slate-200'
+            }`}
         >
           <ShieldCheck size={18} /> Privileges
         </button>
-        <button 
+        <button
           onClick={() => setActiveTab('customers')}
-          className={`flex items-center gap-2 px-6 py-2.5 rounded-xl font-bold text-sm transition-all ${
-            activeTab === 'customers' ? 'bg-indigo-600 text-white shadow-lg' : 'text-slate-400 hover:text-slate-200'
-          }`}
+          className={`flex items-center gap-2 px-6 py-2.5 rounded-xl font-bold text-sm transition-all ${activeTab === 'customers' ? 'bg-indigo-600 text-white shadow-lg' : 'text-slate-400 hover:text-slate-200'
+            }`}
         >
           <UserPlus size={18} /> Customers
         </button>
@@ -89,11 +92,11 @@ const SettingsView: React.FC<Props> = ({ currentUser, onUpdateRole, customers, s
                   <p className="text-xs text-indigo-400 font-bold">Current: {currentUser.role}</p>
                 </div>
                 <div className="flex gap-2">
-                  <button 
+                  <button
                     onClick={() => onUpdateRole(UserRole.ADMIN)}
                     className={`px-3 py-1.5 rounded-lg text-[10px] font-black uppercase ${currentUser.role === UserRole.ADMIN ? 'bg-indigo-600' : 'bg-slate-800'}`}
                   >Admin</button>
-                  <button 
+                  <button
                     onClick={() => onUpdateRole(UserRole.MANAGER)}
                     className={`px-3 py-1.5 rounded-lg text-[10px] font-black uppercase ${currentUser.role === UserRole.MANAGER ? 'bg-indigo-600' : 'bg-slate-800'}`}
                   >Manager</button>
@@ -119,14 +122,14 @@ const SettingsView: React.FC<Props> = ({ currentUser, onUpdateRole, customers, s
                       </td>
                       <td className="px-6 py-5 font-bold text-slate-300">{item.action}</td>
                       <td className="px-6 py-5">
-                         <div className="flex justify-center">
-                            {item.admin ? <CheckCircle2 size={18} className="text-emerald-500" /> : <Lock size={18} className="text-slate-700" />}
-                         </div>
+                        <div className="flex justify-center">
+                          {item.admin ? <CheckCircle2 size={18} className="text-emerald-500" /> : <Lock size={18} className="text-slate-700" />}
+                        </div>
                       </td>
                       <td className="px-6 py-5">
-                         <div className="flex justify-center">
-                            {item.manager ? <CheckCircle2 size={18} className="text-emerald-500" /> : <Lock size={18} className="text-rose-500/50" />}
-                         </div>
+                        <div className="flex justify-center">
+                          {item.manager ? <CheckCircle2 size={18} className="text-emerald-500" /> : <Lock size={18} className="text-rose-500/50" />}
+                        </div>
                       </td>
                     </tr>
                   ))}
@@ -155,11 +158,11 @@ const SettingsView: React.FC<Props> = ({ currentUser, onUpdateRole, customers, s
             <div className="space-y-6">
               <div className="space-y-2">
                 <label className="text-[10px] font-black uppercase text-slate-500 tracking-widest">Full Name / Entity</label>
-                <input 
-                  type="text" 
+                <input
+                  type="text"
                   value={newCustName}
                   onChange={(e) => setNewCustName(e.target.value)}
-                  placeholder="e.g. Acme Corp" 
+                  placeholder="e.g. Acme Corp"
                   className="w-full bg-slate-900 border border-slate-800 rounded-2xl px-6 py-4 font-bold focus:ring-2 focus:ring-indigo-500 outline-none"
                 />
               </div>
@@ -167,16 +170,16 @@ const SettingsView: React.FC<Props> = ({ currentUser, onUpdateRole, customers, s
                 <label className="text-[10px] font-black uppercase text-slate-500 tracking-widest">Starting Credit Balance</label>
                 <div className="relative">
                   <span className="absolute left-6 top-1/2 -translate-y-1/2 text-slate-500 font-bold">$</span>
-                  <input 
-                    type="number" 
+                  <input
+                    type="number"
                     value={newCustBalance}
                     onChange={(e) => setNewCustBalance(e.target.value)}
-                    placeholder="0.00" 
+                    placeholder="0.00"
                     className="w-full bg-slate-900 border border-slate-800 rounded-2xl pl-10 pr-6 py-4 font-bold focus:ring-2 focus:ring-indigo-500 outline-none"
                   />
                 </div>
               </div>
-              <button 
+              <button
                 onClick={handleAddCustomer}
                 className="w-full bg-indigo-600 hover:bg-indigo-500 py-4 rounded-2xl font-black uppercase tracking-widest text-xs shadow-lg shadow-indigo-500/20 transition-all flex items-center justify-center gap-2"
               >
@@ -207,7 +210,7 @@ const SettingsView: React.FC<Props> = ({ currentUser, onUpdateRole, customers, s
                       <div className="w-12 h-12 rounded-2xl bg-indigo-500/10 flex items-center justify-center text-indigo-400">
                         <UsersIcon size={24} />
                       </div>
-                      <button 
+                      <button
                         onClick={() => removeCustomer(cust.id)}
                         className="p-2 text-slate-600 hover:text-rose-400 transition-colors opacity-0 group-hover:opacity-100"
                       >
