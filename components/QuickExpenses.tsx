@@ -1,16 +1,52 @@
-import React from 'react';
-import { Plus, Trash2, Zap } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import { Plus, Trash2, Zap, Send } from 'lucide-react';
 import { ExpenseTemplate } from '../types';
 import { formatCurrency } from '../utils';
 
 interface Props {
     templates: ExpenseTemplate[];
     onApply: (template: ExpenseTemplate) => void;
+    onQuickPost?: (template: ExpenseTemplate, amount: number) => Promise<void>;
     onDelete?: (id: string) => Promise<void>;
     isAdmin?: boolean;
 }
 
-const QuickExpenses: React.FC<Props> = ({ templates, onApply, onDelete, isAdmin }) => {
+const QuickExpenses: React.FC<Props> = ({ templates, onApply, onQuickPost, onDelete, isAdmin }) => {
+    const [amounts, setAmounts] = useState<{ [key: string]: string }>({});
+    const [isPosting, setIsPosting] = useState<{ [key: string]: boolean }>({});
+
+    // Initialize amounts from templates
+    useEffect(() => {
+        const initialAmounts: { [key: string]: string } = {};
+        templates.forEach(t => {
+            if (amounts[t.id] === undefined) {
+                initialAmounts[t.id] = (t.amount / 100).toString();
+            }
+        });
+        if (Object.keys(initialAmounts).length > 0) {
+            setAmounts(prev => ({ ...prev, ...initialAmounts }));
+        }
+    }, [templates]);
+
+    const handleQuickPost = async (tmp: ExpenseTemplate) => {
+        if (!onQuickPost) return;
+        const amountStr = amounts[tmp.id];
+        const amount = parseFloat(amountStr);
+        if (isNaN(amount) || amount <= 0) {
+            alert("Please enter a valid amount.");
+            return;
+        }
+
+        setIsPosting(prev => ({ ...prev, [tmp.id]: true }));
+        try {
+            await onQuickPost(tmp, amount);
+        } catch (error) {
+            console.error("Error in quick post:", error);
+        } finally {
+            setIsPosting(prev => ({ ...prev, [tmp.id]: false }));
+        }
+    };
+
     if (templates.length === 0) {
         return (
             <div className="py-20 text-center glass rounded-[3rem] border-dashed border-2 border-slate-800">
@@ -45,20 +81,42 @@ const QuickExpenses: React.FC<Props> = ({ templates, onApply, onDelete, isAdmin 
                             <p className="text-[10px] font-black uppercase text-indigo-400 tracking-widest">{tmp.mainCategory} / {tmp.subcategory}</p>
                         </div>
 
-                        <div className="py-4 border-y border-slate-800/50 flex items-center justify-between">
-                            <span className="text-2xl font-black text-white">{formatCurrency(tmp.amount)}</span>
-                            <div className="text-right">
-                                <p className="text-[9px] font-bold text-slate-500 uppercase tracking-tighter">Vendor</p>
-                                <p className="text-xs font-black text-slate-300 truncate max-w-[120px]">{tmp.vendorName || 'N/A'}</p>
+                        <div className="py-4 border-y border-slate-800/50 flex flex-col gap-3">
+                            <div className="flex items-center justify-between">
+                                <span className="text-xs font-bold text-slate-500 uppercase">Saved Vendor</span>
+                                <span className="text-xs font-black text-slate-300 truncate max-w-[120px]">{tmp.vendorName || 'N/A'}</span>
+                            </div>
+                            <div className="relative mt-2">
+                                <span className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-500 font-bold">$</span>
+                                <input
+                                    type="number"
+                                    value={amounts[tmp.id] || ''}
+                                    onChange={e => setAmounts({ ...amounts, [tmp.id]: e.target.value })}
+                                    className="w-full bg-slate-950 border border-slate-800 rounded-xl pl-8 pr-4 py-3 text-white font-black text-lg focus:ring-2 focus:ring-indigo-500 outline-none transition-all"
+                                    placeholder="0.00"
+                                />
                             </div>
                         </div>
 
-                        <button
-                            onClick={() => onApply(tmp)}
-                            className="w-full bg-indigo-600 hover:bg-indigo-500 text-white font-black py-4 rounded-2xl shadow-lg shadow-indigo-500/10 transition-all flex items-center justify-center gap-3 uppercase tracking-widest text-xs"
-                        >
-                            <Plus size={18} /> Use Template
-                        </button>
+                        <div className="flex gap-3">
+                            {onQuickPost && (
+                                <button
+                                    onClick={() => handleQuickPost(tmp)}
+                                    disabled={isPosting[tmp.id]}
+                                    className="flex-[2] bg-emerald-600 hover:bg-emerald-500 text-white font-black py-4 rounded-2xl shadow-lg shadow-emerald-500/10 transition-all flex items-center justify-center gap-2 uppercase tracking-widest text-[10px] disabled:opacity-50"
+                                >
+                                    <Send size={14} className={isPosting[tmp.id] ? "animate-spin" : ""} />
+                                    {isPosting[tmp.id] ? "Posting..." : "Quick Post"}
+                                </button>
+                            )}
+                            <button
+                                onClick={() => onApply(tmp)}
+                                className="flex-1 bg-slate-800 hover:bg-slate-700 text-slate-300 font-black py-4 rounded-2xl transition-all flex items-center justify-center gap-2 uppercase tracking-widest text-[10px]"
+                                title="Open in full form"
+                            >
+                                <Plus size={14} /> Full
+                            </button>
+                        </div>
                     </div>
                 </div>
             ))}

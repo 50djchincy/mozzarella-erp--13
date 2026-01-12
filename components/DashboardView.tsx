@@ -251,13 +251,31 @@ const DashboardView: React.FC<Props> = ({ accounts = [] }) => {
         <div className="glass rounded-[2.5rem] p-10 border-l-4 border-indigo-500 space-y-6">
           <div className="flex items-center gap-3 text-indigo-400">
             <Wallet size={24} />
-            <h4 className="text-xl font-black text-white">Total Receivables</h4>
+            <h4 className="text-xl font-black text-white">System Liquidity</h4>
           </div>
-          <div className="space-y-1">
-            <h5 className="text-4xl font-black text-white tracking-tighter">{formatCurrency(receivables)}</h5>
-            <p className="text-xs font-bold text-slate-500">Receivables (Calculated from Accounts)</p>
+          <div className="space-y-4">
+            <div className="flex justify-between items-center text-xs">
+              <span className="text-slate-500 font-bold uppercase tracking-widest">Petty Cash</span>
+              <span className="text-white font-black">{formatCurrency(accounts.find(a => a.type === 'Petty Cash')?.currentBalance || 0)}</span>
+            </div>
+            <div className="flex justify-between items-center text-xs">
+              <span className="text-slate-500 font-bold uppercase tracking-widest">Card Receivables</span>
+              <span className="text-white font-black">{formatCurrency(accounts.filter(a => a.name.toLowerCase().includes('card') || a.id.toLowerCase().includes('card')).reduce((sum, a) => sum + a.currentBalance, 0))}</span>
+            </div>
+            <div className="flex justify-between items-center text-xs">
+              <span className="text-slate-500 font-bold uppercase tracking-widest">Partner Sales</span>
+              <span className="text-white font-black">{formatCurrency(accounts.filter(a => a.name.toLowerCase().includes('partner') || a.name.toLowerCase().includes('uber') || a.name.toLowerCase().includes('deliveroo')).reduce((sum, a) => sum + a.currentBalance, 0))}</span>
+            </div>
+            <div className="flex justify-between items-center text-xs">
+              <span className="text-slate-500 font-bold uppercase tracking-widest">Foreign Currency Asset</span>
+              <span className="text-white font-black">{formatCurrency(accounts.filter(a => a.name.toLowerCase().includes('foreign') || a.id.toLowerCase().includes('foreign') || a.name.toLowerCase().includes('curren')).reduce((sum, a) => sum + a.currentBalance, 0))}</span>
+            </div>
+            <div className="flex justify-between items-center text-xs pt-2 border-t border-slate-800">
+              <span className="text-slate-400 font-black uppercase tracking-widest">Total Asset Liquidity</span>
+              <span className="text-emerald-400 font-black">{formatCurrency(receivables)}</span>
+            </div>
           </div>
-          <div className="pt-6 border-t border-slate-800">
+          <div className="pt-2">
             <button className="text-[10px] font-black uppercase tracking-widest text-indigo-400 hover:text-white transition-colors flex items-center gap-2">Open Money Lab <ArrowRight size={14} /></button>
           </div>
         </div>

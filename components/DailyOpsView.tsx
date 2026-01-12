@@ -147,7 +147,121 @@ const DailyOpsView: React.FC<Props> = ({
       setSessionExpenses(prev => [...prev, expense]);
     }
   };
+
+  const handleQuickPost = async (tmp: ExpenseTemplate, amount: number) => {
+    const sourceAcc = accounts.find(a => a.id === tmp.sourceAccountId);
+    if (!sourceAcc) {
+      alert("Source account not found for this template. Please use 'Full' to edit.");
+      return;
+    }
+
+    const amountCents = Math.round(amount * 100);
+    const isPending = sourceAcc.type === AccountType.PAYABLE;
+
+    const newTx: ExpenseTransaction = {
+      id: Math.random().toString(36).substr(2, 9),
+      date: new Date().toISOString().split('T')[0],
+      amount: amountCents,
+      mainCategory: tmp.mainCategory,
+      subcategory: tmp.subcategory,
+      vendorId: tmp.vendorId,
+      vendorName: tmp.vendorName,
+      sourceAccountId: tmp.sourceAccountId,
+      isPendingPayable: isPending,
+      receivesStock: tmp.receivesStock,
+      isRecurring: false,
+      details: tmp.details || 'Quick post from template',
+      user: currentUser.name
+    };
+
+    try {
+      if (onSaveExpense) {
+        await onSaveExpense(newTx);
+        setSessionExpenses(prev => [...prev, newTx]);
+      }
+
+      if (onSaveAccount) {
+        await onSaveAccount({
+          ...sourceAcc,
+          currentBalance: sourceAcc.currentBalance - amountCents
+        });
+      }
+
+      if (onAddLedgerEntry) {
+        await onAddLedgerEntry({
+          id: Math.random().toString(36).substr(2, 9),
+          desc: `Quick Expense: ${tmp.mainCategory}${tmp.subcategory ? ' - ' + tmp.subcategory : ''} (${tmp.name})`,
+          account: sourceAcc.name,
+          type: 'Expense',
+          amount: amountCents,
+          date: newTx.date,
+          time: new Date().toLocaleTimeString(),
+          user: currentUser.name,
+          status: 'Posted'
+        });
+      }
+
+      alert(`Quick expense "${tmp.name}" posted successfully!`);
+    } catch (err) {
+      console.error("Quick post failed:", err);
+      alert("Failed to post quick expense.");
+    }
+  };
   const sessionExpensesTotal = sessionExpenses.reduce((acc, curr) => acc + curr.amount, 0);
+
+  const handleProceedFromOpen = async () => {
+    if (moneyAdded > 0 && selectedAssetSource) {
+      const sourceAcc = accounts.find(a => a.id === selectedAssetSource);
+      if (sourceAcc && onSaveAccount && onAddLedgerEntry) {
+        try {
+          // Deduct from Asset Source
+          await onSaveAccount({
+            ...sourceAcc,
+            currentBalance: sourceAcc.currentBalance - moneyAdded
+          });
+
+          // Add to Petty Cash immediately
+          if (pettyCashAccount) {
+            await onSaveAccount({
+              ...pettyCashAccount,
+              currentBalance: pettyCashAccount.currentBalance + moneyAdded
+            });
+          }
+
+          // Create Ledger Entry for the Transfer (Source side)
+          await onAddLedgerEntry({
+            id: Math.random().toString(36).substr(2, 9),
+            desc: `Float Injection: ${sourceAcc.name} -> Petty Cash`,
+            account: sourceAcc.name,
+            type: 'Expense',
+            amount: moneyAdded,
+            date: businessDate,
+            time: new Date().toLocaleTimeString(),
+            user: currentUser?.name || 'System',
+            status: 'Posted'
+          });
+
+          // Create Ledger Entry for the Transfer (Receiving side)
+          await onAddLedgerEntry({
+            id: Math.random().toString(36).substr(2, 9),
+            desc: `Float Received from ${sourceAcc.name}`,
+            account: pettyCashAccount?.name || 'Petty Cash',
+            type: 'Income',
+            amount: moneyAdded,
+            date: businessDate,
+            time: new Date().toLocaleTimeString(),
+            user: currentUser?.name || 'System',
+            status: 'Posted'
+          });
+        } catch (err) {
+          console.error("Failed to process float injection:", err);
+          alert("Failed to record money transfer. Please try again.");
+          return;
+        }
+      }
+    }
+    setStep(3);
+  };
 
   const handleCloseShift = async () => {
     if (!config || !onSaveAccount || !onAddLedgerEntry) {
@@ -178,7 +292,7 @@ const DailyOpsView: React.FC<Props> = ({
     const physicalTotalCents = physicalCount;
     const creditTotal = totalCustomerCredit;
 
-    const cashSales = totalSalesCents - cardTotal - partnerTotal - creditTotal;
+    const cashSales = totalSalesCents - cardTotal - partnerTotal - creditTotal - foreignCurrency;
     const theoreticalCash = openingBalance + cashSales - expensesTotalCents;
     const variance = physicalTotalCents - theoreticalCash;
 
@@ -201,6 +315,7 @@ const DailyOpsView: React.FC<Props> = ({
     const partnerAcc = accounts.find(a => a.id === config.partnerAccountId);
     const customerRecAcc = accounts.find(a => a.id === config.customerReceivableAccountId);
     const pettyCashAcc = accounts.find(a => a.type === AccountType.PETTY_CASH);
+    const fcAcc = accounts.find(a => a.id === config.foreignCurrencyAccountId);
 
     if (!incomeAcc || !pettyCashAcc) {
       console.error("DEBUG: Critical Failure - Missing Accounts", { incomeAcc, pettyCashAcc });
@@ -268,6 +383,9 @@ const DailyOpsView: React.FC<Props> = ({
       if (customerRecAcc && creditTotal > 0) {
         await onSaveAccount({ ...customerRecAcc, currentBalance: customerRecAcc.currentBalance + creditTotal });
       }
+      if (fcAcc && foreignCurrency > 0) {
+        await onSaveAccount({ ...fcAcc, currentBalance: fcAcc.currentBalance + foreignCurrency });
+      }
 
       // 5. Update Individual Customers
       if (onSaveCustomer && customerCredits.length > 0) {
@@ -334,7 +452,22 @@ const DailyOpsView: React.FC<Props> = ({
         });
       }
 
-      // Entry 4: Record Partner Sales
+      // Entry 4: Record Cash Sales to Petty Cash
+      if (cashSales > 0) {
+        await onAddLedgerEntry({
+          id: Math.random().toString(36).substr(2, 9),
+          desc: `Daily Ops Cash Sales (${date})`,
+          account: pettyCashAcc.name,
+          type: 'Income',
+          amount: cashSales,
+          date,
+          time,
+          user: role,
+          status: 'Posted'
+        });
+      }
+
+      // Entry 5: Record Partner Sales
       if (partnerAcc && partnerTotal > 0) {
         await onAddLedgerEntry({
           id: Math.random().toString(36).substr(2, 9),
@@ -349,7 +482,22 @@ const DailyOpsView: React.FC<Props> = ({
         });
       }
 
-      // Entry 3: Record Cash Variance
+      // Entry 6: Record Foreign Currency
+      if (fcAcc && foreignCurrency > 0) {
+        await onAddLedgerEntry({
+          id: Math.random().toString(36).substr(2, 9),
+          desc: `Daily Ops Foreign Currency: ${fcNote || 'FC'} (${date})`,
+          account: fcAcc.name,
+          type: 'Income',
+          amount: foreignCurrency,
+          date,
+          time,
+          user: role,
+          status: 'Posted'
+        });
+      }
+
+      // Entry 7: Record Cash Variance
       if (variance !== 0) {
         await onAddLedgerEntry({
           id: Math.random().toString(36).substr(2, 9),
@@ -377,6 +525,8 @@ const DailyOpsView: React.FC<Props> = ({
           customerCredit: creditTotal,
           expenses: sessionExpensesTotal, // Only tracks what was added in this session window
           moneyAdded,
+          foreignCurrency,
+          fcNote,
           theoreticalCash,
           physicalCount: physicalTotalCents,
           variance,
@@ -396,7 +546,11 @@ const DailyOpsView: React.FC<Props> = ({
       setCardPayments(0);
       setPartnerSales(0);
       setForeignCurrency(0);
+      setFcNote('');
       setCustomerCredits([]);
+      setCounts({
+        '5000': 0, '2000': 0, '1000': 0, '500': 0, '100': 0, '50': 0, '20': 0, 'coins': 0
+      });
 
     } catch (e) {
       console.error("DEBUG: Error closing shift:", e);
@@ -404,16 +558,19 @@ const DailyOpsView: React.FC<Props> = ({
     }
   };
   const targetRegisterBalance = useMemo(() => {
-    // Formula: (Petty cash balance + money added + Total Sales) - (card payments + Partner sales + Customer Credit + Foreign currency)
+    // Formula: (Petty cash balance + Total Sales) - (card payments + Partner sales + Customer Credit + Foreign currency)
     // Expenses are real-time, so openingBalance reflects them.
-    return (openingBalance + moneyAdded + totalSales) - (cardPayments + partnerSales + totalCustomerCredit + foreignCurrency);
-  }, [openingBalance, moneyAdded, totalSales, cardPayments, partnerSales, totalCustomerCredit, foreignCurrency]);
+    // IMPORTANT: Since we now update Petty Cash balance IMMEDIATELY in Step 2, 
+    // openingBalance ALREADY includes moneyAdded.
+    return (openingBalance + totalSales) - (cardPayments + partnerSales + totalCustomerCredit + foreignCurrency);
+  }, [openingBalance, totalSales, cardPayments, partnerSales, totalCustomerCredit, foreignCurrency]);
 
-  // Fixed: Explicitly cast Object.entries to resolve 'unknown' type errors during arithmetic operations
+  // Fixed: Denominations (5000, 2000, etc.) are in Rupees. 
+  // We multiply by 100 to convert to cents for system consistency.
   const physicalTotal = useMemo(() => {
     return (Object.entries(counts) as [string, number][]).reduce((acc, [den, count]) => {
       if (den === 'coins') return acc + count; // assumed coins entered as total cents/val
-      return acc + (parseInt(den) * count);
+      return acc + (parseInt(den) * 100 * count);
     }, 0);
   }, [counts]);
 
@@ -460,10 +617,16 @@ const DailyOpsView: React.FC<Props> = ({
       <div className="space-y-8 animate-in slide-in-from-right-8 duration-500">
         {/* Wizard Header */}
         <div className="flex items-center justify-between glass p-6 rounded-[2rem]">
-          <div className="flex gap-2">
-            {[1, 2, 3, 4, 5].map(s => (
-              <div key={s} className={`h-2 w-12 rounded-full transition-all ${step >= s ? 'bg-indigo-500' : 'bg-slate-800'}`}></div>
-            ))}
+          <div className="flex items-center gap-8">
+            <div className="flex gap-2">
+              {[1, 2, 3, 4, 5].map(s => (
+                <div key={s} className={`h-2 w-12 rounded-full transition-all ${step >= s ? 'bg-indigo-500' : 'bg-slate-800'}`}></div>
+              ))}
+            </div>
+            <div className="flex items-center gap-3 px-6 py-2 bg-slate-900/80 rounded-2xl border border-slate-800 shadow-inner">
+              <span className="text-[10px] font-black uppercase tracking-widest text-slate-500">Money in Till:</span>
+              <span className="text-lg font-black text-emerald-400">{formatCurrency(targetRegisterBalance)}</span>
+            </div>
           </div>
           <span className="text-xs font-black uppercase tracking-widest text-slate-500">Step {step} of 5</span>
         </div>
@@ -564,6 +727,7 @@ const DailyOpsView: React.FC<Props> = ({
                   <QuickExpenses
                     templates={templates || []}
                     onApply={(tmp) => { setSelectedTemplate(tmp); setShowCustomExpense(true); }}
+                    onQuickPost={handleQuickPost}
                   />
 
                   <div className="flex justify-center mt-8">
@@ -666,7 +830,7 @@ const DailyOpsView: React.FC<Props> = ({
                 <div className="grid grid-cols-2 gap-4">
                   {[5000, 2000, 1000, 500, 100, 50, 20].map(den => (
                     <div key={den} className="bg-slate-900/50 p-4 rounded-3xl border border-slate-800 flex flex-col items-center group">
-                      <span className="text-indigo-400 font-black mb-2">${den / 100}</span>
+                      <span className="text-indigo-400 font-black mb-2">{den}</span>
                       <input
                         type="number"
                         placeholder="0"
@@ -732,9 +896,25 @@ const DailyOpsView: React.FC<Props> = ({
                         <span>+ Gross Sales:</span>
                         <span>{formatCurrency(totalSales)}</span>
                       </div>
-                      <div className="flex justify-between text-rose-400">
-                        <span>- Non-Cash Payments:</span>
-                        <span>({formatCurrency(cardPayments + partnerSales + totalCustomerCredit + foreignCurrency)})</span>
+
+                      {/* Detailed Non-Cash Breakdown */}
+                      <div className="pt-2 border-t border-slate-700/30 space-y-1">
+                        <div className="flex justify-between text-rose-400/80">
+                          <span>- Card Payments:</span>
+                          <span>({formatCurrency(cardPayments)})</span>
+                        </div>
+                        <div className="flex justify-between text-rose-400/80">
+                          <span>- Partner (Uber/Del):</span>
+                          <span>({formatCurrency(partnerSales)})</span>
+                        </div>
+                        <div className="flex justify-between text-rose-400/80">
+                          <span>- Customer Credits:</span>
+                          <span>({formatCurrency(totalCustomerCredit)})</span>
+                        </div>
+                        <div className="flex justify-between text-rose-400/80">
+                          <span>- Foreign Currency:</span>
+                          <span>({formatCurrency(foreignCurrency)})</span>
+                        </div>
                       </div>
 
                       <div className="border-t border-slate-600 pt-2 flex justify-between font-bold text-white">
@@ -778,7 +958,15 @@ const DailyOpsView: React.FC<Props> = ({
               </button>
             )}
             <button
-              onClick={() => step === 5 ? handleCloseShift() : setStep(step + 1)}
+              onClick={() => {
+                if (step === 2) {
+                  handleProceedFromOpen();
+                } else if (step === 5) {
+                  handleCloseShift();
+                } else {
+                  setStep(step + 1);
+                }
+              }}
               className="flex-[2] bg-indigo-600 hover:bg-indigo-500 text-white font-black py-5 rounded-3xl shadow-xl shadow-indigo-500/20 transition-all text-lg uppercase tracking-widest"
             >
               {step === 5 ? 'Close Shift & Post to Ledger' : 'Continue'}
@@ -891,7 +1079,7 @@ const DailyOpsView: React.FC<Props> = ({
               onChange={e => setConfig({ ...config, partnerAccountId: e.target.value })}
             >
               <option value="">Select Receivable Account</option>
-              {accounts.map(a => <option key={a.id} value={a.id}>{a.name} ({a.type})</option>)}
+              {accounts.filter(a => a.type === AccountType.PARTNER_RECEIVABLE).map(a => <option key={a.id} value={a.id}>{a.name} ({a.type})</option>)}
             </select>
           </div>
           <div className="space-y-4">

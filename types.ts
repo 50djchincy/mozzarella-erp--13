@@ -5,7 +5,7 @@ export enum AccountType {
   RECEIVABLE = 'Receivable',
   PAYABLE = 'Payable',
   ASSETS = 'Assets',
-  DAILY_OPS = 'Daily Ops'
+  PARTNER_RECEIVABLE = 'Partner Receivable'
 }
 
 export interface Account {
@@ -139,6 +139,8 @@ export interface DailyOpsSession {
   customerCredit: number;
   expenses: number;
   moneyAdded: number;
+  foreignCurrency: number;
+  fcNote?: string;
   theoreticalCash: number;
   physicalCount: number;
   variance: number;

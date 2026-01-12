@@ -43,6 +43,7 @@ import SettlementView from './components/SettlementView';
 import ReportsView from './components/ReportsView';
 import SettingsView from './components/SettingsView';
 import { useFirestoreSync } from './hooks/useFirestoreSync';
+import { defaultCategories } from './constants';
 
 const AppContent: React.FC = () => {
   const { user, loading: authLoading, logout } = useAuth();
@@ -70,6 +71,7 @@ const AppContent: React.FC = () => {
 
   // Ledger Sync
   const {
+    data: ledgerEntries,
     addOrUpdateItem: addLedgerEntry
   } = useFirestoreSync<any>('ledger', [], undefined, { enabled: !!user });
 
@@ -81,7 +83,20 @@ const AppContent: React.FC = () => {
   const {
     data: expenseCategories,
     addOrUpdateItem: addOrUpdateExpenseCategory
-  } = useFirestoreSync<ExpenseCategory>('expenseCategories', [], 'name', { enabled: !!user });
+  } = useFirestoreSync<ExpenseCategory>('expenseCategories', defaultCategories, 'name', { enabled: !!user });
+
+  const categories = React.useMemo(() => {
+    const merged = [...defaultCategories];
+    (expenseCategories || []).forEach(remoteCat => {
+      const index = merged.findIndex(c => c.id === remoteCat.id);
+      if (index > -1) {
+        merged[index] = remoteCat;
+      } else {
+        merged.push(remoteCat);
+      }
+    });
+    return merged;
+  }, [expenseCategories]);
 
   const {
     data: expenses,
@@ -139,7 +154,15 @@ const AppContent: React.FC = () => {
   const renderContent = () => {
     switch (activeView) {
       case 'dashboard': return <DashboardView accounts={accounts} />;
-      case 'money-lab': return <MoneyLabView role={user.role} accounts={accounts} onSaveAccount={addOrUpdateAccount} />;
+      case 'money-lab': return (
+        <MoneyLabView
+          role={user.role}
+          accounts={accounts}
+          onSaveAccount={addOrUpdateAccount}
+          onAddLedgerEntry={addLedgerEntry}
+          ledgerEntries={ledgerEntries || []}
+        />
+      );
       case 'daily-ops':
         if (!dailyOpsSessions) return <Loader2 className="animate-spin text-slate-500 mx-auto mt-20" />;
         return (
@@ -149,7 +172,7 @@ const AppContent: React.FC = () => {
             customers={customers || []}
             config={dailyOpsConfig}
             currentUser={{ name: user.name, id: user.id }}
-            categories={expenseCategories || []}
+            categories={categories}
             vendors={vendors || []}
             templates={expenseTemplates || []}
             sessions={dailyOpsSessions || []}
@@ -170,12 +193,12 @@ const AppContent: React.FC = () => {
         return (
           <ExpensesView
             role={user.role}
-            accounts={accounts}
+            accounts={accounts || []}
             currentUser={{ name: user.name, id: user.id }}
-            expenses={expenses}
-            categories={expenseCategories}
-            vendors={vendors}
-            templates={expenseTemplates}
+            expenses={expenses || []}
+            categories={categories}
+            vendors={vendors || []}
+            templates={expenseTemplates || []}
             onSaveExpense={addOrUpdateExpense}
             onDeleteExpense={deleteExpense}
             onSaveCategory={addOrUpdateExpenseCategory}

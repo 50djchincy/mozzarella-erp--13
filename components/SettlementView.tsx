@@ -123,58 +123,139 @@ const SettlementView: React.FC<Props> = ({
   }, [selectedTxIds, receivableTransactions]);
 
   const handlePartnerSettle = async () => {
-    if (!selectedTxId || !onUpdateReceivable || !selectedTx || !onSaveAccount || !onAddLedgerEntry) return;
 
-    const netAmount = toCents(form.bankTransfer); // Amount actually received in bank
-    const feeAmount = selectedTx.amount - netAmount; // Difference is commission/expense
+    // DEBUG: Explicitly check for missing props
+    if (!selectedTxId) { alert("Error: No Transaction ID selected"); return; }
+    if (!selectedTx) { alert("Error: Transaction object not found in memory"); return; }
+    if (!onUpdateReceivable) { alert("Error: Update capability missing (onUpdateReceivable)"); return; }
+    if (!onSaveAccount) { alert("Error: Account save capability missing (onSaveAccount)"); return; }
+    if (!onAddLedgerEntry) { alert("Error: Ledger capability missing (onAddLedgerEntry)"); return; }
+
+    const cashAmount = toCents(form.cash); // Fix: Use correct field for cash
+    const cardAmount = toCents(form.card);
+    const expenseAmount = toCents(form.expense);
+    const serviceChargeAmount = toCents(form.serviceCharge);
+
+
+
+    // Validation: Total check
+    const totalAllocated = cashAmount + cardAmount + expenseAmount + serviceChargeAmount;
+
+    if (totalAllocated !== selectedTx.amount) {
+      if (!confirm(`Warning: The allocated amount (${formatCurrency(totalAllocated)}) does not match the transaction amount (${formatCurrency(selectedTx.amount)}). Proceed?`)) {
+        return;
+      }
+    }
 
     // 1. Get Accounts
-    const bankAcc = accounts.find(a => a.id === form.bankAccount);
+    const pettyCashAcc = accounts.find(a => a.type === AccountType.PETTY_CASH); // Cash goes here
     const partnerAcc = accounts.find(a => a.id === config?.partnerSalesRecAccId); // The pending asset account
-    const expenseAcc = accounts.find(a => a.id === form.expense); // Dedicated expense account for commissions if selected
+    const cardTargetAcc = accounts.find(a => a.id === config?.settlementCardAccId); // The account where card payments go
 
-    if (!bankAcc || !partnerAcc) {
-      alert("Please select a valid Bank Account and ensure Partner Account is configured.");
+
+
+    if (!partnerAcc) {
+      alert("Please ensure Partner Account is configured.");
+      return;
+    }
+
+    if (cashAmount > 0 && !pettyCashAcc) {
+      alert("No Petty Cash account found to receive funds.");
       return;
     }
 
     try {
       // 2. Credit Pending Account (Reduce Asset) - FULL AMOUNT
+      // We reduce the full amount because the transaction is fully settled.
+      // Expenses are just "money we didn't get", so they are implicitly accounted for by reducing the asset.
       await onSaveAccount({ ...partnerAcc, currentBalance: partnerAcc.currentBalance - selectedTx.amount });
 
-      // 3. Debit Bank Account (Increase Asset) - NET AMOUNT
-      await onSaveAccount({ ...bankAcc, currentBalance: bankAcc.currentBalance + netAmount });
-
-      // 4. Debit Expense Account (Increase Expense) - FEE AMOUNT
-      // If user selected an expense account for the difference
-      if (feeAmount > 0 && expenseAcc) {
-        // Note: Expenses are usually positive balance in this system? Checking Ops View... 
-        // Yes, Expenses increase.
-        await onSaveAccount({ ...expenseAcc, currentBalance: expenseAcc.currentBalance + feeAmount });
+      // 3. Debit Petty Cash (Increase Asset) - CASH PORTION
+      if (cashAmount > 0 && pettyCashAcc) {
+        await onSaveAccount({ ...pettyCashAcc, currentBalance: pettyCashAcc.currentBalance + cashAmount });
       }
 
-      // 5. Update Transaction Status
+      // 4. Handle Card Payment Portion
+      if (cardAmount > 0 && cardTargetAcc) {
+        // Increase balance of target card account (Asset)
+        await onSaveAccount({ ...cardTargetAcc, currentBalance: cardTargetAcc.currentBalance + cardAmount });
+
+        // Create NEW Pending Transaction for this Card Amount
+        await onUpdateReceivable({
+          id: Math.random().toString(36).substr(2, 9),
+          date: new Date().toISOString().split('T')[0],
+          source: `Partner Split: ${selectedTx.source}`,
+          amount: cardAmount,
+          status: 'Pending',
+          accountId: cardTargetAcc.id
+        });
+      }
+
+      // Note: We do NOT credit any separate expense account for 'expenseAmount' or 'serviceChargeAmount'
+      // because the user requested they remain within the partner receivable context (deduction).
+
+      // 5. Update Original Transaction Status
       await onUpdateReceivable({ ...selectedTx, status: 'Settled' });
 
-      // 6. Ledger Entry
+      // 6. Ledger Entries
+      const date = new Date().toISOString().split('T')[0];
+      const time = new Date().toLocaleTimeString();
+
+      if (cashAmount > 0 && pettyCashAcc) {
+        await onAddLedgerEntry({
+          id: Math.random().toString(36).substr(2, 9),
+          desc: `Settlement Cash: ${selectedTx.source}`,
+          account: pettyCashAcc.name,
+          type: 'Income',
+          amount: cashAmount,
+          date,
+          time,
+          user: role,
+          status: 'Posted'
+        });
+      }
+
+      if (cardAmount > 0 && cardTargetAcc) {
+        await onAddLedgerEntry({
+          id: Math.random().toString(36).substr(2, 9),
+          desc: `Settlement Card Split: ${selectedTx.source}`,
+          account: cardTargetAcc.name,
+          type: 'Income',
+          amount: cardAmount,
+          date,
+          time,
+          user: role,
+          status: 'Posted'
+        });
+      }
+
+      // We still record the "Payout" from the Partner Account to track that it was cleared
+      // This entry represents the asset reduction.
       await onAddLedgerEntry({
-        id: crypto.randomUUID(),
-        date: new Date().toISOString(),
-        description: `Settlement: ${selectedTx.source} (${selectedTx.date})`,
+        id: Math.random().toString(36).substr(2, 9),
+        desc: `Settlement Cleared: ${selectedTx.source}`,
+        account: partnerAcc.name,
+        type: 'Expense',
         amount: selectedTx.amount,
-        type: 'Transfer',
-        debitAccountId: bankAcc.id, // Main flow
-        creditAccountId: partnerAcc.id,
-        relatedId: selectedTx.id
+        date,
+        time,
+        user: role,
+        status: 'Posted'
       });
 
       setSelectedTxId(null);
       setForm({ ...form, cash: '', card: '', expense: '', serviceCharge: '', bankTransfer: '' });
-      alert(`Settled! \nReceived: ${formatCurrency(netAmount)}\nFees: ${formatCurrency(feeAmount)}`);
+      setTimeout(() => {
+        alert(`Settled! \nCash: ${formatCurrency(cashAmount)}\nCard Pending: ${formatCurrency(cardAmount)}\nDeductions: ${formatCurrency(expenseAmount + serviceChargeAmount)}`);
+      }, 50);
 
-    } catch (e) {
-      console.error(e);
-      alert("Error processing settlement.");
+    } catch (e: any) {
+      console.error("Settlement Error:", e);
+      // Show actual error to user for debugging
+      alert(`Error processing settlement: ${e.message || JSON.stringify(e)}`);
+    } finally {
+      // We need to define setIsSettling state first, but for now let's just ensure we catch errors visibly.
+      // Ideally I'd add the state logic, but let's see exactly what the error IS first.
     }
   };
 
@@ -214,6 +295,19 @@ const SettlementView: React.FC<Props> = ({
           const sourceAcc = accounts.find(a => a.id === tx.accountId);
           if (sourceAcc) {
             await onSaveAccount({ ...sourceAcc, currentBalance: sourceAcc.currentBalance - tx.amount });
+
+            // Record source side ledger entry
+            await onAddLedgerEntry({
+              id: Math.random().toString(36).substr(2, 9),
+              desc: `Card Settlement: -> ${targetAcc.name}`,
+              account: sourceAcc.name,
+              type: 'Expense',
+              amount: tx.amount,
+              date: new Date().toISOString().split('T')[0],
+              time: new Date().toLocaleTimeString(),
+              user: role,
+              status: 'Posted'
+            });
           }
           await onUpdateReceivable({ ...tx, status: 'Settled' });
         }
@@ -222,16 +316,20 @@ const SettlementView: React.FC<Props> = ({
       // Debit Target Account (Bank) - Net Amount
       await onSaveAccount({ ...targetAcc, currentBalance: targetAcc.currentBalance + receivedAmount });
 
-      // Ledger? One big entry?
+      // 3. Ledger Entry for Target Account
+      const date = new Date().toISOString().split('T')[0];
+      const time = new Date().toLocaleTimeString();
+
       await onAddLedgerEntry({
-        id: crypto.randomUUID(),
-        date: new Date().toISOString(),
-        description: `Card Settlement (Batch of ${selectedTxIds.length})`,
-        amount: totalAmount,
-        type: 'Transfer',
-        debitAccountId: targetAcc.id,
-        creditAccountId: 'VARIOUS_PENDING',
-        metadata: { fees: feeAmount }
+        id: Math.random().toString(36).substr(2, 9),
+        desc: `Card Settlement Batch Received (${selectedTxIds.length} txs)`,
+        account: targetAcc.name,
+        type: 'Income',
+        amount: receivedAmount,
+        date,
+        time,
+        user: role,
+        status: 'Posted'
       });
 
       setSelectedTxIds([]);
@@ -285,16 +383,35 @@ const SettlementView: React.FC<Props> = ({
         await onSaveAccount({ ...receivableAcc, currentBalance: receivableAcc.currentBalance - paymentAmount });
       }
 
-      // 4. Ledger
+      // 4. Ledger Entries
+      const date = new Date().toISOString().split('T')[0];
+      const time = new Date().toLocaleTimeString();
+
       await onAddLedgerEntry({
-        id: crypto.randomUUID(),
-        date: new Date().toISOString(),
-        description: `Customer Payment: ${selectedCust.name}`,
-        amount: paymentAmount,
+        id: Math.random().toString(36).substr(2, 9),
+        desc: `Customer Payment Received: ${selectedCust.name}`,
+        account: targetAcc.name,
         type: 'Income',
-        debitAccountId: targetAcc.id,
-        creditAccountId: receivableAcc?.id || 'CUSTOMER_DEBT'
+        amount: paymentAmount,
+        date,
+        time,
+        user: role,
+        status: 'Posted'
       });
+
+      if (receivableAcc) {
+        await onAddLedgerEntry({
+          id: Math.random().toString(36).substr(2, 9),
+          desc: `Customer Credit Paid Off: ${selectedCust.name}`,
+          account: receivableAcc.name,
+          type: 'Expense',
+          amount: paymentAmount,
+          date,
+          time,
+          user: role,
+          status: 'Posted'
+        });
+      }
 
       setSelectedCustId(null);
       setForm({ ...form, cash: '' });
@@ -306,14 +423,121 @@ const SettlementView: React.FC<Props> = ({
     }
   };
 
-  const handlePayableSettle = () => {
-    setSelectedVendorId(null);
-    setForm({ ...form, cash: '', bankTransfer: '' });
+  const handlePayableSettle = async () => {
+    if (!selectedVendorId || !onSaveAccount || !onAddLedgerEntry) return;
+
+    const amountCents = toCents(form.bankTransfer);
+    const sourceAcc = accounts.find(a => a.id === form.bankAccount);
+    const vendorAcc = accounts.find(a => a.id === selectedVendorId); // Actually this might be a vendor object, but types.ts says payable bills are tied to vendors.
+
+    if (!sourceAcc || amountCents <= 0) {
+      alert("Please select a valid source account and amount.");
+      return;
+    }
+
+    try {
+      // 1. Update Source Account (Decrease Asset/Cash)
+      await onSaveAccount({ ...sourceAcc, currentBalance: sourceAcc.currentBalance - amountCents });
+
+      // 2. Update Payable Account if exists
+      // If the bill was from a PAYABLE type account, we should reduce its liability.
+      const payableAcc = accounts.find(a => a.id === selectedVendorId && a.type === AccountType.PAYABLE);
+      if (payableAcc) {
+        await onSaveAccount({ ...payableAcc, currentBalance: payableAcc.currentBalance - amountCents });
+      }
+
+      // 3. Ledger Entries
+      const date = new Date().toISOString().split('T')[0];
+      const time = new Date().toLocaleTimeString();
+
+      await onAddLedgerEntry({
+        id: Math.random().toString(36).substr(2, 9),
+        desc: `Bill Payment to Vendor`,
+        account: sourceAcc.name,
+        type: 'Expense',
+        amount: amountCents,
+        date,
+        time,
+        user: role,
+        status: 'Posted'
+      });
+
+      if (payableAcc) {
+        await onAddLedgerEntry({
+          id: Math.random().toString(36).substr(2, 9),
+          desc: `Liability Settlement: Paid from ${sourceAcc.name}`,
+          account: payableAcc.name,
+          type: 'Income', // Reducing liability is like "Income" for the account balance in this simplified model
+          amount: amountCents,
+          date,
+          time,
+          user: role,
+          status: 'Posted'
+        });
+      }
+
+      setSelectedVendorId(null);
+      setForm({ ...form, cash: '', bankTransfer: '' });
+      alert("Payment Successful!");
+    } catch (e) {
+      console.error(e);
+      alert("Error processing payment.");
+    }
   };
 
-  const handleBankMoney = () => {
-    // Transfer logic
-    setForm({ ...form, cash: '' });
+  const handleBankMoney = async () => {
+    if (!onSaveAccount || !onAddLedgerEntry) return;
+
+    const amountCents = toCents(form.cash);
+    const pettyCashAcc = accounts.find(a => a.type === AccountType.PETTY_CASH);
+    const targetAcc = accounts.find(a => a.id === form.bankAccount);
+
+    if (!pettyCashAcc || !targetAcc || amountCents <= 0) {
+      alert("Please select a valid target account and amount.");
+      return;
+    }
+
+    try {
+      // 1. Update Petty Cash (Decrease)
+      await onSaveAccount({ ...pettyCashAcc, currentBalance: pettyCashAcc.currentBalance - amountCents });
+
+      // 2. Update Target Bank Account (Increase)
+      await onSaveAccount({ ...targetAcc, currentBalance: targetAcc.currentBalance + amountCents });
+
+      // 3. Ledger Entries
+      const date = new Date().toISOString().split('T')[0];
+      const time = new Date().toLocaleTimeString();
+
+      await onAddLedgerEntry({
+        id: Math.random().toString(36).substr(2, 9),
+        desc: `Bank Deposit: To ${targetAcc.name}`,
+        account: pettyCashAcc.name,
+        type: 'Expense',
+        amount: amountCents,
+        date,
+        time,
+        user: role,
+        status: 'Posted'
+      });
+
+      await onAddLedgerEntry({
+        id: Math.random().toString(36).substr(2, 9),
+        desc: `Deposit from Petty Cash`,
+        account: targetAcc.name,
+        type: 'Income',
+        amount: amountCents,
+        date,
+        time,
+        user: role,
+        status: 'Posted'
+      });
+
+      setForm({ ...form, cash: '' });
+      alert("Bank Deposit Recorded!");
+    } catch (e) {
+      console.error(e);
+      alert("Error recording deposit.");
+    }
   };
 
   const renderPartners = () => (
@@ -380,6 +604,22 @@ const SettlementView: React.FC<Props> = ({
                 <Calculator size={16} className="text-indigo-400" />
                 <p className="text-[10px] font-bold text-slate-400">Card payment will be settled to: <span className="text-indigo-300 font-black">{accounts.find(a => a.id === settlementCardAcc)?.name}</span></p>
               </div>
+
+              {(() => {
+                const totalAllocated = toCents(form.cash) + toCents(form.card) + toCents(form.expense) + toCents(form.serviceCharge);
+                const remaining = selectedTx.amount - totalAllocated;
+                const matches = remaining === 0;
+
+                return (
+                  <div className={`p-4 rounded-xl border-l-4 ${matches ? 'bg-emerald-500/10 border-emerald-500' : 'bg-amber-500/10 border-amber-500'}`}>
+                    <div className="flex justify-between items-center">
+                      <span className="text-xs font-bold text-slate-400">Unallocated Amount</span>
+                      <span className={`text-xl font-black ${matches ? 'text-emerald-400' : 'text-amber-400'}`}>{formatCurrency(remaining)}</span>
+                    </div>
+                  </div>
+                );
+              })()}
+
               <button onClick={handlePartnerSettle} className="w-full bg-indigo-600 hover:bg-indigo-500 text-white font-black py-4 rounded-2xl shadow-xl shadow-indigo-500/20 transition-all uppercase tracking-widest text-xs">Finalize Settlement</button>
             </div>
           </div>
@@ -680,7 +920,7 @@ const SettlementView: React.FC<Props> = ({
               <div className="space-y-2">
                 <label className="text-[10px] font-black uppercase text-slate-500 px-2">Partner Receivable Holder</label>
                 <select value={partnerSalesRecAcc} onChange={e => setPartnerSalesRecAcc(e.target.value)} className="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-3 text-white font-bold">
-                  {accounts.filter(a => a.type === AccountType.RECEIVABLE).map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
+                  {accounts.filter(a => a.type === AccountType.PARTNER_RECEIVABLE).map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
                 </select>
               </div>
               <div className="space-y-2">

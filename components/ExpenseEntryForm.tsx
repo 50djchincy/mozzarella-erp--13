@@ -67,6 +67,9 @@ const ExpenseEntryForm: React.FC<Props> = ({
         recurringFrequency: initialData?.recurringFrequency || 'Monthly' as any,
         details: initialData?.details || ''
     });
+    const [isSaveTemplateInputVisible, setIsSaveTemplateInputVisible] = useState(false);
+    const [templateName, setTemplateName] = useState('');
+    const [isSavingTemplate, setIsSavingTemplate] = useState(false);
 
     const handleAddTransaction = async () => {
         if (!formData.amount) return;
@@ -175,10 +178,18 @@ const ExpenseEntryForm: React.FC<Props> = ({
             return;
         }
 
-        const inputName = window.prompt("Enter a name for this template (e.g., Office Rent, Daily Milk):");
-        const name = inputName?.trim();
-        if (!name) return;
+        if (!isSaveTemplateInputVisible) {
+            setIsSaveTemplateInputVisible(true);
+            return;
+        }
 
+        const name = templateName.trim();
+        if (!name) {
+            alert("Please enter a name for the template.");
+            return;
+        }
+
+        setIsSavingTemplate(true);
         const mainCat = categories.find(c => c.id === formData.mainCategoryId);
         const template: ExpenseTemplate = {
             id: Math.random().toString(36).substr(2, 9),
@@ -196,9 +207,13 @@ const ExpenseEntryForm: React.FC<Props> = ({
         try {
             await onSaveTemplate(template);
             alert(`Template "${name}" saved successfully!`);
+            setIsSaveTemplateInputVisible(false);
+            setTemplateName('');
         } catch (error) {
             console.error("Error saving template:", error);
             alert(`Failed to save template: ${error instanceof Error ? error.message : 'Unknown error'}`);
+        } finally {
+            setIsSavingTemplate(false);
         }
     };
 
@@ -403,21 +418,47 @@ const ExpenseEntryForm: React.FC<Props> = ({
                     </div>
                 </div>
 
-                <div className="flex gap-4">
-                    <button
-                        onClick={handleAddTransaction}
-                        className="flex-[2] flex items-center justify-center gap-4 bg-indigo-600 hover:bg-indigo-500 text-white font-black py-8 rounded-[2.5rem] shadow-2xl shadow-indigo-500/20 transition-all text-xl uppercase tracking-widest"
-                    >
-                        <Save size={28} /> Post Expense
-                    </button>
-                    {onSaveTemplate && (
-                        <button
-                            onClick={handleSaveTemplate}
-                            className="flex-1 flex items-center justify-center gap-3 bg-slate-800 hover:bg-slate-700 text-slate-300 font-black py-8 rounded-[2.5rem] transition-all text-sm uppercase tracking-widest"
-                        >
-                            <HistoryIcon size={20} /> Save as Template
-                        </button>
+                <div className="flex flex-col gap-4">
+                    {isSaveTemplateInputVisible && (
+                        <div className="flex flex-col gap-3 p-6 bg-slate-900 border border-slate-800 rounded-3xl animate-in slide-in-from-bottom-2">
+                            <label className="text-[10px] font-black uppercase text-slate-500 tracking-widest px-2">Template Name</label>
+                            <div className="flex gap-4">
+                                <input
+                                    autoFocus
+                                    type="text"
+                                    value={templateName}
+                                    onChange={e => setTemplateName(e.target.value)}
+                                    placeholder="Enter template name..."
+                                    className="flex-1 bg-slate-950 border border-slate-800 rounded-2xl px-6 py-4 text-white font-bold outline-none focus:ring-2 focus:ring-indigo-500"
+                                    onKeyDown={e => e.key === 'Enter' && handleSaveTemplate()}
+                                />
+                                <button
+                                    onClick={() => setIsSaveTemplateInputVisible(false)}
+                                    className="px-6 py-4 bg-slate-800 hover:bg-slate-700 text-slate-400 rounded-2xl font-bold transition-all"
+                                >
+                                    Cancel
+                                </button>
+                            </div>
+                        </div>
                     )}
+                    <div className="flex gap-4">
+                        <button
+                            onClick={handleAddTransaction}
+                            className="flex-[2] flex items-center justify-center gap-4 bg-indigo-600 hover:bg-indigo-500 text-white font-black py-8 rounded-[2.5rem] shadow-2xl shadow-indigo-500/20 transition-all text-xl uppercase tracking-widest"
+                        >
+                            <Save size={28} /> Post Expense
+                        </button>
+                        {onSaveTemplate && (
+                            <button
+                                disabled={isSavingTemplate}
+                                onClick={handleSaveTemplate}
+                                className={`flex-1 flex items-center justify-center gap-3 ${isSaveTemplateInputVisible ? 'bg-indigo-600 hover:bg-indigo-500 text-white' : 'bg-slate-800 hover:bg-slate-700 text-slate-300'} font-black py-8 rounded-[2.5rem] transition-all text-sm uppercase tracking-widest disabled:opacity-50`}
+                            >
+                                <HistoryIcon size={20} className={isSavingTemplate ? "animate-spin" : ""} />
+                                {isSavingTemplate ? "Saving..." : isSaveTemplateInputVisible ? "Confirm Save" : "Save as Template"}
+                            </button>
+                        )}
+                    </div>
                 </div>
             </div>
         </div>

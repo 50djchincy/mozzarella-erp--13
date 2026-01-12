@@ -48,19 +48,13 @@ interface Props {
   onDeleteTemplate: (id: string) => Promise<void>;
 }
 
-const defaultCategories: ExpenseCategory[] = [
-  { id: 'ops', name: 'Operational', subcategories: ['Utility', 'Rent', 'Repairs'] },
-  { id: 'goods', name: 'Ingredients and goods to be sold', subcategories: ['Vegetables', 'Meat', 'Dairy', 'Packaging'] },
-  { id: 'staff', name: 'Staff', subcategories: ['Meals', 'Uniforms', 'Training'] },
-  { id: 'marketing', name: 'Marketing', subcategories: ['Social Media', 'Flyers', 'Events'] },
-];
 
 const ExpensesView: React.FC<Props> = ({
   role,
   accounts,
   currentUser,
   expenses: remoteExpenses,
-  categories: remoteCategories,
+  categories,
   vendors: remoteVendors,
   templates: remoteTemplates,
   onSaveExpense,
@@ -77,18 +71,6 @@ const ExpensesView: React.FC<Props> = ({
 
 
 
-  const categories = useMemo(() => {
-    const merged = [...defaultCategories];
-    (remoteCategories || []).forEach(remoteCat => {
-      const index = merged.findIndex(c => c.id === remoteCat.id);
-      if (index > -1) {
-        merged[index] = remoteCat;
-      } else {
-        merged.push(remoteCat);
-      }
-    });
-    return merged;
-  }, [remoteCategories]);
 
   const vendors = remoteVendors;
   const transactions = remoteExpenses;
@@ -111,9 +93,94 @@ const ExpensesView: React.FC<Props> = ({
 
   const [selectedTemplate, setSelectedTemplate] = useState<ExpenseTemplate | undefined>(undefined);
 
+  const handleQuickPost = async (tmp: ExpenseTemplate, amount: number) => {
+    const sourceAcc = accounts.find(a => a.id === tmp.sourceAccountId);
+    if (!sourceAcc) {
+      alert("Source account not found for this template. Please use 'Full' to edit.");
+      return;
+    }
+
+    const amountCents = Math.round(amount * 100);
+    const isPending = sourceAcc.type === AccountType.PAYABLE;
+
+    const newTx: ExpenseTransaction = {
+      id: Math.random().toString(36).substr(2, 9),
+      date: new Date().toISOString().split('T')[0],
+      amount: amountCents,
+      mainCategory: tmp.mainCategory,
+      subcategory: tmp.subcategory,
+      vendorId: tmp.vendorId,
+      vendorName: tmp.vendorName,
+      sourceAccountId: tmp.sourceAccountId,
+      isPendingPayable: isPending,
+      receivesStock: tmp.receivesStock,
+      isRecurring: false,
+      details: tmp.details || 'Quick post from template',
+      user: currentUser.name
+    };
+
+    try {
+      await onSaveExpense(newTx);
+      await onSaveAccount({
+        ...sourceAcc,
+        currentBalance: sourceAcc.currentBalance - amountCents
+      });
+      await onAddLedgerEntry({
+        id: Math.random().toString(36).substr(2, 9),
+        desc: `Quick Expense: ${tmp.mainCategory}${tmp.subcategory ? ' - ' + tmp.subcategory : ''} (${tmp.name})`,
+        account: sourceAcc.name,
+        type: 'Expense',
+        amount: amountCents,
+        date: newTx.date,
+        time: new Date().toLocaleTimeString(),
+        user: currentUser.name,
+        status: 'Posted'
+      });
+      alert(`Quick expense "${tmp.name}" posted successfully!`);
+    } catch (err) {
+      console.error("Quick post failed:", err);
+      alert("Failed to post quick expense.");
+    }
+  };
+
   const deleteTransaction = async (id: string) => {
-    if (window.confirm("Are you sure you want to delete this expense record? Note: This will not automatically reverse account balances.")) {
-      await onDeleteExpense(id);
+    const tx = transactions.find(t => t.id === id);
+    if (!tx) return;
+
+    if (window.confirm(`Are you sure you want to delete this expense record for ${formatCurrency(tx.amount)}? This will reverse the account balance.`)) {
+      try {
+        const sourceAcc = accounts.find(a => a.id === tx.sourceAccountId);
+
+        // 1. Reverse the account balance
+        if (sourceAcc && onSaveAccount) {
+          await onSaveAccount({
+            ...sourceAcc,
+            currentBalance: sourceAcc.currentBalance + tx.amount
+          });
+
+          // 2. Record Reversal in Ledger
+          if (onAddLedgerEntry) {
+            await onAddLedgerEntry({
+              id: Math.random().toString(36).substr(2, 9),
+              desc: `REVERSED: ${tx.mainCategory} - ${tx.vendorName || 'No Vendor'}`,
+              account: sourceAcc.name,
+              type: 'Income', // Re-adding funds
+              amount: tx.amount,
+              date: new Date().toISOString().split('T')[0],
+              time: new Date().toLocaleTimeString(),
+              user: currentUser.name,
+              status: 'Posted'
+            });
+          }
+        }
+
+        // 3. Delete the record
+        await onDeleteExpense(id);
+        alert("Expense deleted and balance reversed.");
+      } catch (err) {
+        console.error("Delete failed:", err);
+        alert("Failed to delete expense properly.");
+      }
     }
   };
 
@@ -147,6 +214,7 @@ const ExpensesView: React.FC<Props> = ({
     <QuickExpenses
       templates={templates}
       onApply={applyTemplate}
+      onQuickPost={handleQuickPost}
       onDelete={onDeleteTemplate}
       isAdmin={role === UserRole.ADMIN}
     />

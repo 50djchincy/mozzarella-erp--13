@@ -17,7 +17,9 @@ import {
   Download,
   ArrowRightLeft,
   Check,
-  Lock
+  Lock,
+  Settings as SettingsIcon,
+  AlertCircle
 } from 'lucide-react';
 import { formatCurrency, toCents } from '../utils';
 import { AccountType, Account, UserRole } from '../types';
@@ -26,9 +28,11 @@ interface Props {
   role: UserRole;
   accounts: Account[];
   onSaveAccount: (account: Account) => Promise<void>;
+  onAddLedgerEntry: (entry: any) => Promise<void>;
+  ledgerEntries: any[];
 }
 
-const MoneyLabView: React.FC<Props> = ({ role, accounts, onSaveAccount }) => {
+const MoneyLabView: React.FC<Props> = ({ role, accounts, onSaveAccount, onAddLedgerEntry, ledgerEntries }) => {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isTransferModalOpen, setIsTransferModalOpen] = useState(false);
   const [selectedAccount, setSelectedAccount] = useState<Account | null>(null);
@@ -43,6 +47,12 @@ const MoneyLabView: React.FC<Props> = ({ role, accounts, onSaveAccount }) => {
   const [transferTo, setTransferTo] = useState<string>('');
   const [transferAmount, setTransferAmount] = useState<string>('');
   const [transferNote, setTransferNote] = useState<string>('');
+
+  // Adjustment Form State
+  const [isAdjustModalOpen, setIsAdjustModalOpen] = useState(false);
+  const [adjustAmount, setAdjustAmount] = useState('');
+  const [adjustDesc, setAdjustDesc] = useState('Opening Balance Correction');
+  const [adjustType, setAdjustType] = useState<'Income' | 'Expense'>('Income');
 
   const isAdmin = role === UserRole.ADMIN;
 
@@ -59,6 +69,19 @@ const MoneyLabView: React.FC<Props> = ({ role, accounts, onSaveAccount }) => {
     };
 
     await onSaveAccount(newAcc);
+
+    // Create initial ledger entry
+    await onAddLedgerEntry({
+      id: Math.random().toString(36).substr(2, 9),
+      desc: `Initial Balance / Account Created`,
+      account: newAcc.name,
+      type: 'Income',
+      amount: balance,
+      date: new Date().toISOString().split('T')[0],
+      time: new Date().toLocaleTimeString(),
+      user: role,
+      status: 'Posted'
+    });
 
     setIsModalOpen(false);
     setNewName('');
@@ -83,11 +106,72 @@ const MoneyLabView: React.FC<Props> = ({ role, accounts, onSaveAccount }) => {
       onSaveAccount(updatedTo)
     ]);
 
+    // Record Ledger Entries for Transfer
+    const date = new Date().toISOString().split('T')[0];
+    const time = new Date().toLocaleTimeString();
+
+    await onAddLedgerEntry({
+      id: Math.random().toString(36).substr(2, 9),
+      desc: `Transfer to ${toAcc.name}${transferNote ? ' (' + transferNote + ')' : ''}`,
+      account: fromAcc.name,
+      type: 'Expense',
+      amount: amountCents,
+      date,
+      time,
+      user: role,
+      status: 'Posted'
+    });
+
+    await onAddLedgerEntry({
+      id: Math.random().toString(36).substr(2, 9),
+      desc: `Transfer from ${fromAcc.name}${transferNote ? ' (' + transferNote + ')' : ''}`,
+      account: toAcc.name,
+      type: 'Income',
+      amount: amountCents,
+      date,
+      time,
+      user: role,
+      status: 'Posted'
+    });
+
     setIsTransferModalOpen(false);
     setTransferAmount('');
     setTransferNote('');
     setTransferFrom('');
     setTransferTo('');
+  };
+
+  const handleAdjustBalance = async () => {
+    if (!isAdmin || !selectedAccount) return;
+    const amountCents = toCents(adjustAmount);
+    if (amountCents <= 0) return;
+
+    const newBalance = adjustType === 'Income'
+      ? selectedAccount.currentBalance + amountCents
+      : selectedAccount.currentBalance - amountCents;
+
+    const updatedAccount = { ...selectedAccount, currentBalance: newBalance };
+
+    await onSaveAccount(updatedAccount);
+
+    // Record Ledger Entry
+    await onAddLedgerEntry({
+      id: Math.random().toString(36).substr(2, 9),
+      desc: `MANUAL ADJUSTMENT: ${adjustDesc}`,
+      account: selectedAccount.name,
+      type: adjustType,
+      amount: amountCents,
+      date: new Date().toISOString().split('T')[0],
+      time: new Date().toLocaleTimeString(),
+      user: role,
+      status: 'Posted'
+    });
+
+    setSelectedAccount(updatedAccount);
+    setIsAdjustModalOpen(false);
+    setAdjustAmount('');
+    setAdjustDesc('Opening Balance Correction');
+    alert("Balance adjusted and ledger entry created.");
   };
 
   const openTransferModal = (fromId?: string) => {
@@ -102,7 +186,7 @@ const MoneyLabView: React.FC<Props> = ({ role, accounts, onSaveAccount }) => {
       case AccountType.PAYABLE: return <ArrowUpRight size={20} />;
       case AccountType.ASSETS: return <Layers size={20} />;
       case AccountType.PETTY_CASH: return <Wallet size={20} />;
-      case AccountType.DAILY_OPS: return <Zap size={20} />;
+      case AccountType.PARTNER_RECEIVABLE: return <Zap size={20} />;
     }
   };
 
@@ -147,13 +231,125 @@ const MoneyLabView: React.FC<Props> = ({ role, accounts, onSaveAccount }) => {
             >
               <ArrowRightLeft size={18} /> Transfer Funds
             </button>
+            {isAdmin && (
+              <button
+                onClick={() => setIsAdjustModalOpen(true)}
+                className="flex-1 flex items-center justify-center gap-2 bg-slate-800 hover:bg-slate-700 py-4 rounded-2xl font-bold transition-all text-slate-300"
+              >
+                <SettingsIcon size={18} /> Adjust Balance
+              </button>
+            )}
           </div>
         </div>
 
         <div className="glass rounded-3xl overflow-hidden">
-          <div className="p-6 border-b border-slate-800 font-bold uppercase tracking-widest text-xs text-slate-400">Master Ledger Entries</div>
-          <div className="p-12 text-center text-slate-500 italic">
-            No transactions recorded yet in this ledger.
+          <div className="p-6 border-b border-slate-800 flex items-center justify-between">
+            <span className="font-bold uppercase tracking-widest text-xs text-slate-400">Master Ledger Entries</span>
+            <div className="flex items-center gap-4">
+              {/* Ledger Audit Badge */}
+              {(() => {
+                const entries = (ledgerEntries || []).filter(e => e.account === selectedAccount.name);
+                const ledgerSum = entries.reduce((acc, e) => {
+                  return e.type === 'Income' ? acc + e.amount : acc - e.amount;
+                }, 0);
+                const diff = selectedAccount.currentBalance - ledgerSum;
+                const isMatch = Math.abs(diff) < 1; // Precision check
+
+                return (
+                  <div className="flex items-center gap-2">
+                    <span className={`px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-widest flex items-center gap-1.5 ${isMatch ? 'bg-emerald-500/10 text-emerald-400' : 'bg-rose-500/10 text-rose-400'
+                      }`}>
+                      {isMatch ? (
+                        <>
+                          <Check size={10} /> Ledger Matches Balance
+                        </>
+                      ) : (
+                        <>
+                          <AlertCircle size={10} /> Discrepancy: {formatCurrency(Math.abs(diff))}
+                        </>
+                      )}
+                    </span>
+                    {!isMatch && isAdmin && (
+                      <button
+                        onClick={async () => {
+                          const direction = diff > 0 ? 'Income' : 'Expense';
+                          const absDiff = Math.abs(diff);
+
+                          if (window.confirm(`Fix Ledger? This will add a ${direction} entry of ${formatCurrency(absDiff)} to match current balance.`)) {
+                            await onAddLedgerEntry({
+                              id: Math.random().toString(36).substr(2, 9),
+                              desc: `SYSTEM RECONCILIATION: Balance Alignment`,
+                              account: selectedAccount.name,
+                              type: direction,
+                              amount: absDiff,
+                              date: new Date().toISOString().split('T')[0],
+                              time: new Date().toLocaleTimeString(),
+                              user: role,
+                              status: 'Posted'
+                            });
+                            alert("Ledger aligned successfully!");
+                          }
+                        }}
+                        className="text-[10px] font-black uppercase tracking-widest text-indigo-400 hover:text-indigo-300 underline underline-offset-4"
+                      >
+                        Reconcile Ledger
+                      </button>
+                    )}
+                  </div>
+                );
+              })()}
+              <span className="px-3 py-1 bg-slate-800 rounded-full text-[10px] font-black text-slate-500 uppercase tracking-widest">
+                {(ledgerEntries || []).filter(e => e.account === selectedAccount.name).length} Transactions
+              </span>
+            </div>
+          </div>
+
+          <div className="overflow-x-auto">
+            <table className="w-full text-left">
+              <thead>
+                <tr className="border-b border-slate-800 bg-slate-900/50">
+                  <th className="px-6 py-4 text-[10px] font-black uppercase tracking-widest text-slate-500">Date/Time</th>
+                  <th className="px-6 py-4 text-[10px] font-black uppercase tracking-widest text-slate-500">Description</th>
+                  <th className="px-6 py-4 text-[10px] font-black uppercase tracking-widest text-slate-500">Type</th>
+                  <th className="px-6 py-4 text-right text-[10px] font-black uppercase tracking-widest text-slate-500">Amount</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-800/50">
+                {(ledgerEntries || [])
+                  .filter(e => e.account === selectedAccount.name)
+                  .sort((a, b) => new Date(b.date + ' ' + b.time).getTime() - new Date(a.date + ' ' + a.time).getTime())
+                  .map((entry) => (
+                    <tr key={entry.id} className="hover:bg-slate-800/30 transition-colors group">
+                      <td className="px-6 py-4">
+                        <div className="text-xs font-bold text-white">{entry.date}</div>
+                        <div className="text-[10px] text-slate-500 font-medium">{entry.time}</div>
+                      </td>
+                      <td className="px-6 py-4 text-xs font-medium text-slate-300">
+                        {entry.desc}
+                      </td>
+                      <td className="px-6 py-4">
+                        <span className={`px-2 py-1 rounded-md text-[10px] font-black uppercase tracking-wider ${entry.type === 'Income' ? 'bg-emerald-500/10 text-emerald-400' : 'bg-rose-500/10 text-rose-400'
+                          }`}>
+                          {entry.type}
+                        </span>
+                      </td>
+                      <td className="px-6 py-4 text-right">
+                        <span className={`text-xs font-black ${entry.type === 'Income' ? 'text-emerald-400' : 'text-rose-400'
+                          }`}>
+                          {entry.type === 'Income' ? '+' : '-'}{formatCurrency(entry.amount)}
+                        </span>
+                      </td>
+                    </tr>
+                  ))}
+                {(ledgerEntries || []).filter(e => e.account === selectedAccount.name).length === 0 && (
+                  <tr>
+                    <td colSpan={4} className="px-6 py-12 text-center text-slate-500 italic text-sm">
+                      No transactions recorded yet in this ledger.
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
           </div>
         </div>
       </div>
@@ -278,7 +474,7 @@ const MoneyLabView: React.FC<Props> = ({ role, accounts, onSaveAccount }) => {
                     { type: AccountType.PAYABLE, label: 'Payables', icon: ArrowUpRight },
                     { type: AccountType.ASSETS, label: 'Asset', icon: Layers },
                     { type: AccountType.PETTY_CASH, label: 'Petty Cash', icon: Wallet },
-                    { type: AccountType.DAILY_OPS, label: 'Daily Ops', icon: Zap },
+                    { type: AccountType.PARTNER_RECEIVABLE, label: 'Partner Receivable', icon: Zap },
                   ].map((item) => (
                     <button
                       key={item.type}
@@ -382,6 +578,67 @@ const MoneyLabView: React.FC<Props> = ({ role, accounts, onSaveAccount }) => {
                 className="w-full bg-indigo-600 hover:bg-indigo-500 disabled:bg-slate-800 disabled:text-slate-600 text-white font-black py-5 rounded-2xl shadow-xl shadow-indigo-500/20 transition-all text-lg flex items-center justify-center gap-3"
               >
                 <Check size={24} /> Execute Transfer
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Adjustment Modal */}
+      {isAdjustModalOpen && selectedAccount && (
+        <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-md z-[100] flex items-center justify-center p-6">
+          <div className="glass w-full max-w-lg rounded-[2.5rem] border-indigo-500/20 overflow-hidden animate-in zoom-in-95 duration-300">
+            <div className="p-8 border-b border-slate-800 flex items-center justify-between bg-slate-900/50">
+              <h3 className="text-xl font-black text-white">Manual Balance Adjustment</h3>
+              <button onClick={() => setIsAdjustModalOpen(false)} className="text-slate-500 hover:text-white"><X size={24} /></button>
+            </div>
+
+            <div className="p-8 space-y-6">
+              <div className="space-y-2">
+                <label className="text-[10px] font-black uppercase text-slate-500 px-2 tracking-widest">Adjustment Direction</label>
+                <div className="grid grid-cols-2 gap-4">
+                  <button
+                    onClick={() => setAdjustType('Income')}
+                    className={`py-4 rounded-2xl font-black text-xs uppercase tracking-widest border transition-all ${adjustType === 'Income' ? 'bg-emerald-500/10 border-emerald-500 text-emerald-400' : 'bg-slate-900 border-slate-800 text-slate-500'}`}
+                  >
+                    Add Funds (+)
+                  </button>
+                  <button
+                    onClick={() => setAdjustType('Expense')}
+                    className={`py-4 rounded-2xl font-black text-xs uppercase tracking-widest border transition-all ${adjustType === 'Expense' ? 'bg-rose-500/10 border-rose-500 text-rose-400' : 'bg-slate-900 border-slate-800 text-slate-500'}`}
+                  >
+                    Remove Funds (-)
+                  </button>
+                </div>
+              </div>
+
+              <div className="space-y-2">
+                <label className="text-[10px] font-black uppercase text-slate-500 px-2 tracking-widest">Amount</label>
+                <input
+                  type="number"
+                  value={adjustAmount}
+                  onChange={e => setAdjustAmount(e.target.value)}
+                  placeholder="0.00"
+                  className="w-full bg-slate-950 border border-slate-800 rounded-2xl px-6 py-4 text-white font-bold"
+                />
+              </div>
+
+              <div className="space-y-2">
+                <label className="text-[10px] font-black uppercase text-slate-500 px-2 tracking-widest">Description / Reason</label>
+                <input
+                  type="text"
+                  value={adjustDesc}
+                  onChange={e => setAdjustDesc(e.target.value)}
+                  placeholder="e.g. Initial balance upload correction"
+                  className="w-full bg-slate-950 border border-slate-800 rounded-2xl px-6 py-4 text-white font-bold"
+                />
+              </div>
+
+              <button
+                onClick={handleAdjustBalance}
+                className="w-full bg-indigo-600 hover:bg-indigo-500 py-6 rounded-3xl font-black text-white uppercase tracking-widest shadow-xl shadow-indigo-500/20 transition-all"
+              >
+                Confirm Adjustment
               </button>
             </div>
           </div>
