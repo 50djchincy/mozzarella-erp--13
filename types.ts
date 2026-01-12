@@ -108,12 +108,25 @@ export interface ExpenseTransaction {
   user: string;
 }
 
-export type ViewType = 
-  | 'dashboard' 
-  | 'money-lab' 
-  | 'daily-ops' 
-  | 'staff-hub' 
-  | 'expenses' 
-  | 'settlement' 
+export interface ExpenseTemplate {
+  id: string;
+  name: string;
+  amount: number;
+  mainCategory: string;
+  subcategory?: string;
+  vendorId?: string;
+  vendorName?: string;
+  sourceAccountId: string;
+  receivesStock: boolean;
+  details: string;
+}
+
+export type ViewType =
+  | 'dashboard'
+  | 'money-lab'
+  | 'daily-ops'
+  | 'staff-hub'
+  | 'expenses'
+  | 'settlement'
   | 'reports'
   | 'settings';

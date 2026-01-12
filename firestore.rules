@@ -1,55 +1,122 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
-    // Helper function to check if user is authenticated
+    
+    // =========================================================
+    // 1. HELPER FUNCTIONS
+    // =========================================================
+    
     function isAuthenticated() {
       return request.auth != null;
     }
+    
+    function userProfileExists() {
+      return exists(/databases/$(database)/documents/users/$(request.auth.uid));
+    }
+    
+    function getUserData() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data;
+    }
+    
+    function isAdmin() {
+      return isAuthenticated() && userProfileExists() && getUserData().role == 'Admin';
+    }
+    
+    function isManager() {
+      return isAuthenticated() && userProfileExists() && (getUserData().role == 'Manager' || getUserData().role == 'Admin');
+    }
 
-    // Users: Users can read/write their own profile
+    // =========================================================
+    // 2. COLLECTION RULES
+    // =========================================================
+
+    // --- Users ---
     match /users/{userId} {
-      allow read, write: if request.auth != null && request.auth.uid == userId;
+      allow read: if isAuthenticated();
+      allow write: if request.auth.uid == userId || isAdmin();
     }
 
-    // Core Data Modules
+    // --- Financials (Accounts) ---
     match /accounts/{document=**} {
-      allow read, write: if isAuthenticated();
+      // SAFE: Staff need to see accounts to pick them in forms
+      allow read: if isAuthenticated();
+      // SECURE: Only Admin/Manager can change balances or add accounts
+      allow create, delete: if isAdmin();
+      allow update: if isManager(); 
     }
 
-    match /customers/{document=**} {
-      allow read, write: if isAuthenticated();
+    // --- Transactions & Bills ---
+    match /{collection}/{docId} {
+      allow read: if isAuthenticated();
+      allow create: if isAuthenticated() && 
+        collection in ['transactions', 'receivable_transactions', 'payable_bills', 'expense_transactions'];
+      allow update: if isManager() && 
+        collection in ['transactions', 'receivable_transactions', 'payable_bills', 'expense_transactions'];
+      allow delete: if isAdmin();
     }
 
-    match /settings/{document=**} {
-      allow read, write: if isAuthenticated();
-    }
-
-    // Staff Hub
-    match /employees/{document=**} {
-      allow read, write: if isAuthenticated();
-    }
-
-    // Expenses Hub
-    match /vendors/{document=**} {
-      allow read, write: if isAuthenticated();
-    }
-
-    // Transactions & Ledger
-    match /transactions/{document=**} {
-      allow read, write: if isAuthenticated();
-    }
-
+    // --- THE LEDGER (CRITICAL SECURITY) ---
     match /ledger/{document=**} {
-      allow read, write: if isAuthenticated();
+      allow read: if isManager(); 
+      allow write: if isManager();
     }
 
+    // --- Expense Configuration ---
+    match /expenseCategories/{document=**} {
+      allow read: if isAuthenticated(); 
+      allow write: if isManager();
+    }
+
+    match /expenseTemplates/{document=**} {
+      allow read: if isAuthenticated(); 
+      allow write: if isManager();
+    }
+
+    // --- Staff Hub ---
+    match /employees/{document=**} {
+      allow read: if isAuthenticated();
+      allow write: if isManager();
+    }
+    
+    // --- Attendance ---
+    match /attendance/{document=**} {
+      allow read: if isAuthenticated();
+      allow create: if isAuthenticated();
+      allow update, delete: if isManager();
+    }
+
+    // --- CRM (Customers & Vendors) ---
+    match /customers/{document=**} {
+      allow read: if isAuthenticated();
+      allow write: if isManager();
+    }
+    match /vendors/{document=**} {
+      allow read: if isAuthenticated();
+      allow write: if isManager();
+    }
+
+    // --- Settings / Config ---
+    match /configs/{document=**} {
+      allow read: if isAuthenticated();
+      allow write: if isAdmin();
+    }
+    match /settings/{document=**} {
+      allow read: if isAuthenticated();
+      allow write: if isAdmin();
+    }
+
+    // --- Activity Logs ---
     match /activity_logs/{document=**} {
-      allow read, write: if isAuthenticated();
+      allow create: if isAuthenticated(); 
+      allow read: if isManager();
+      allow delete: if isAdmin();
     }
 
-    // Daily Ops
+    // --- Daily Ops ---
     match /daily_ops_sessions/{document=**} {
-      allow read, write: if isAuthenticated();
+      allow read: if isAuthenticated();
+      allow write: if isManager();
     }
   }
 }
+

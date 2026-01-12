@@ -30,10 +30,11 @@ interface Props {
   config?: DailyOpsConfig;
   onSaveConfig?: (config: DailyOpsConfig) => Promise<void>;
   onSaveAccount?: (account: Account) => Promise<void>;
+  onSaveCustomer?: (customer: Customer) => Promise<void>;
   onAddLedgerEntry?: (entry: any) => Promise<void>;
 }
 
-const DailyOpsView: React.FC<Props> = ({ role, accounts, customers, config: remoteConfig, onSaveConfig, onSaveAccount, onAddLedgerEntry }) => {
+const DailyOpsView: React.FC<Props> = ({ role, accounts, customers, config: remoteConfig, onSaveConfig, onSaveAccount, onSaveCustomer, onAddLedgerEntry }) => {
   const [activeTab, setActiveTab] = useState<'wizard' | 'history' | 'editor'>('wizard');
   const [step, setStep] = useState(1);
   const isAdmin = role === UserRole.ADMIN;
@@ -100,17 +101,18 @@ const DailyOpsView: React.FC<Props> = ({ role, accounts, customers, config: remo
     // These variables (grossSales, physicalCount, expenses) are not defined in the current scope.
     // Assuming they should come from the state variables already defined:
     // totalSales, physicalTotal (from counts), expensesTotal
-    const grossSales = totalSales; // Renamed for clarity with the provided snippet
-    const physicalCount = physicalTotal; // Renamed for clarity with the provided snippet
-    const expenses = expensesTotal; // Renamed for clarity with the provided snippet
+    const grossSales = totalSales;
+    const physicalCount = physicalTotal;
+    const expenses = expensesTotal;
 
-    const totalSalesCents = grossSales; // Already in cents from setTotalSales
-    const cardTotal = cardPayments; // Already in cents from setCardPayments
-    const partnerTotal = partnerSales; // Already in cents from setPartnerSales
-    const expensesTotalCents = expenses; // Already in cents from setExpensesTotal
-    const physicalTotalCents = physicalCount; // Already in cents from physicalTotal useMemo
+    const totalSalesCents = grossSales;
+    const cardTotal = cardPayments;
+    const partnerTotal = partnerSales;
+    const expensesTotalCents = expenses;
+    const physicalTotalCents = physicalCount;
+    const creditTotal = totalCustomerCredit;
 
-    const cashSales = totalSalesCents - cardTotal - partnerTotal;
+    const cashSales = totalSalesCents - cardTotal - partnerTotal - creditTotal;
     const theoreticalCash = openingBalance + cashSales - expensesTotalCents;
     const variance = physicalTotalCents - theoreticalCash;
 
@@ -118,6 +120,7 @@ const DailyOpsView: React.FC<Props> = ({ role, accounts, customers, config: remo
       totalSalesCents,
       cardTotal,
       partnerTotal,
+      creditTotal,
       expensesTotalCents,
       physicalTotalCents,
       cashSales,
@@ -130,14 +133,8 @@ const DailyOpsView: React.FC<Props> = ({ role, accounts, customers, config: remo
     const incomeAcc = accounts.find(a => a.id === config.incomeAccountId);
     const cardAcc = accounts.find(a => a.id === config.cardAccountId);
     const partnerAcc = accounts.find(a => a.id === config.partnerAccountId);
+    const customerRecAcc = accounts.find(a => a.id === config.customerReceivableAccountId);
     const pettyCashAcc = accounts.find(a => a.type === AccountType.PETTY_CASH);
-
-    console.log("DEBUG: Resolved Accounts", {
-      incomeAcc: incomeAcc?.name,
-      cardAcc: cardAcc?.name,
-      partnerAcc: partnerAcc?.name,
-      pettyCashAcc: pettyCashAcc?.name
-    });
 
     if (!incomeAcc || !pettyCashAcc) {
       console.error("DEBUG: Critical Failure - Missing Accounts", { incomeAcc, pettyCashAcc });
@@ -147,8 +144,6 @@ const DailyOpsView: React.FC<Props> = ({ role, accounts, customers, config: remo
 
     try {
       // 3. Update Income Account (Credit Sales)
-      // Income increases with Credit (but we store as positive balance usually? Check AccountType).
-      // Income accounts: Credit adds to balance.
       await onSaveAccount({ ...incomeAcc, currentBalance: incomeAcc.currentBalance + totalSalesCents });
 
       // 4. Update Asset Accounts (Receivables)
@@ -158,11 +153,29 @@ const DailyOpsView: React.FC<Props> = ({ role, accounts, customers, config: remo
       if (partnerAcc && partnerTotal > 0) {
         await onSaveAccount({ ...partnerAcc, currentBalance: partnerAcc.currentBalance + partnerTotal });
       }
+      if (customerRecAcc && creditTotal > 0) {
+        await onSaveAccount({ ...customerRecAcc, currentBalance: customerRecAcc.currentBalance + creditTotal });
+      }
 
-      // 5. Update Petty Cash (The Truth)
+      // 5. Update Individual Customers
+      if (onSaveCustomer && customerCredits.length > 0) {
+        for (const cred of customerCredits) {
+          if (cred.custId && cred.amount > 0) {
+            const customer = customers.find(c => c.id === cred.custId);
+            if (customer) {
+              await onSaveCustomer({
+                ...customer,
+                outstandingBalance: (customer.outstandingBalance || 0) + cred.amount
+              });
+            }
+          }
+        }
+      }
+
+      // 6. Update Petty Cash (The Truth)
       await onSaveAccount({ ...pettyCashAcc, currentBalance: physicalTotalCents });
 
-      // 6. Create Ledger Entries
+      // 7. Create Ledger Entries
       const date = new Date().toISOString().split('T')[0];
       const time = new Date().toLocaleTimeString();
 
@@ -179,14 +192,14 @@ const DailyOpsView: React.FC<Props> = ({ role, accounts, customers, config: remo
         status: 'Posted'
       });
 
-      // Entry 2: Record Cash Variance (if any significant amount)
-      if (variance !== 0) {
+      // Entry 2: Record Customer Credits
+      if (creditTotal > 0) {
         await onAddLedgerEntry({
           id: Math.random().toString(36).substr(2, 9),
-          desc: `Cash Variance (${date})`,
-          account: pettyCashAcc.name,
-          type: variance > 0 ? 'Income' : 'Expense', // Surplus is Income, Shortage is Expense
-          amount: variance,
+          desc: `Daily Ops Customer Credits (${date})`,
+          account: customerRecAcc?.name || 'Customer Receivables',
+          type: 'Income',
+          amount: creditTotal,
           date,
           time,
           user: role,
@@ -194,14 +207,26 @@ const DailyOpsView: React.FC<Props> = ({ role, accounts, customers, config: remo
         });
       }
 
-      alert("Shift Closed Successfully. Accounts Updated.");
-      setStep(1); // Reset wizard
-      setIsShiftOpen(false); // Close the shift
+      // Entry 3: Record Cash Variance
+      if (variance !== 0) {
+        await onAddLedgerEntry({
+          id: Math.random().toString(36).substr(2, 9),
+          desc: `Cash Variance (${date})`,
+          account: pettyCashAcc.name,
+          type: variance > 0 ? 'Income' : 'Expense',
+          amount: Math.abs(variance),
+          date,
+          time,
+          user: role,
+          status: 'Posted'
+        });
+      }
+
+      alert("Shift Closed Successfully. Accounts and Customers Updated.");
+      setStep(1);
+      setIsShiftOpen(false);
     } catch (e) {
       console.error("DEBUG: Error closing shift:", e);
-      if (e instanceof Error) {
-        console.error("DEBUG: Error Details:", e.message, e.stack);
-      }
       alert("Failed to save shift data. See console for details.");
     }
   };

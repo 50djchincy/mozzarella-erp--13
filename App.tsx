@@ -16,7 +16,7 @@ import {
   LogOut,
   Loader2
 } from 'lucide-react';
-import { ViewType, UserRole, User, Account, Customer, DailyOpsConfig } from './types';
+import { ViewType, UserRole, User, Account, Customer, DailyOpsConfig, Vendor, ExpenseCategory, ExpenseTransaction, ExpenseTemplate } from './types';
 import { AuthProvider, useAuth } from './components/AuthContext';
 import LoginPage from './components/LoginPage';
 import DashboardView from './components/DashboardView';
@@ -56,6 +56,28 @@ const AppContent: React.FC = () => {
   const {
     addOrUpdateItem: addLedgerEntry
   } = useFirestoreSync<any>('ledger', [], undefined, { enabled: !!user });
+
+  const {
+    data: vendors,
+    addOrUpdateItem: addOrUpdateVendor
+  } = useFirestoreSync<Vendor>('vendors', [], 'name', { enabled: !!user });
+
+  const {
+    data: expenseCategories,
+    addOrUpdateItem: addOrUpdateExpenseCategory
+  } = useFirestoreSync<ExpenseCategory>('expenseCategories', [], 'name', { enabled: !!user });
+
+  const {
+    data: expenses,
+    addOrUpdateItem: addOrUpdateExpense,
+    removeItem: deleteExpense
+  } = useFirestoreSync<ExpenseTransaction>('transactions', [], undefined, { enabled: !!user });
+
+  const {
+    data: expenseTemplates,
+    addOrUpdateItem: addOrUpdateExpenseTemplate,
+    removeItem: deleteExpenseTemplate
+  } = useFirestoreSync<ExpenseTemplate>('expenseTemplates', [], undefined, { enabled: !!user });
 
   // Multi-state loading check
   const loading = authLoading || accountsLoading || customersLoading;
@@ -101,11 +123,31 @@ const AppContent: React.FC = () => {
             config={dailyOpsConfig}
             onSaveConfig={(cfg) => addOrUpdateSetting({ ...cfg, id: 'dailyOps' })}
             onSaveAccount={addOrUpdateAccount}
+            onSaveCustomer={addOrUpdateCustomer}
             onAddLedgerEntry={addLedgerEntry}
           />
         );
       case 'staff-hub': return <StaffHubView role={user.role} accounts={accounts} />;
-      case 'expenses': return <ExpensesView role={user.role} accounts={accounts} currentUser={{ name: user.name }} />;
+      case 'expenses':
+        return (
+          <ExpensesView
+            role={user.role}
+            accounts={accounts}
+            currentUser={{ name: user.name, id: user.id }}
+            expenses={expenses}
+            categories={expenseCategories}
+            vendors={vendors}
+            templates={expenseTemplates}
+            onSaveExpense={addOrUpdateExpense}
+            onDeleteExpense={deleteExpense}
+            onSaveCategory={addOrUpdateExpenseCategory}
+            onSaveVendor={addOrUpdateVendor}
+            onSaveAccount={addOrUpdateAccount}
+            onAddLedgerEntry={addLedgerEntry}
+            onSaveTemplate={addOrUpdateExpenseTemplate}
+            onDeleteTemplate={deleteExpenseTemplate}
+          />
+        );
       case 'settlement': return <SettlementView role={user.role} accounts={accounts} customers={customers} />;
       case 'reports': return <ReportsView />;
       case 'settings': return <SettingsView currentUser={user} onUpdateRole={(role) => { }} customers={customers} setCustomers={() => { }} />;

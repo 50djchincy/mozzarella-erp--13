@@ -20,33 +20,77 @@ import {
   Search,
   ChevronDown,
   X,
-  AlertTriangle
+  AlertTriangle,
+  Zap,
+  Activity,
+  RefreshCw
 } from 'lucide-react';
-import { ExpenseCategory, Vendor, ExpenseTransaction, Account, UserRole } from '../types';
+import { ExpenseCategory, Vendor, ExpenseTransaction, Account, UserRole, AccountType, ExpenseTemplate } from '../types';
 import { formatCurrency, toCents } from '../utils';
 
 interface Props {
   role: UserRole;
   accounts: Account[];
-  currentUser: { name: string };
+  currentUser: { name: string; id: string };
+  expenses: ExpenseTransaction[];
+  categories: ExpenseCategory[];
+  vendors: Vendor[];
+  templates: ExpenseTemplate[];
+  onSaveExpense: (expense: ExpenseTransaction) => Promise<void>;
+  onDeleteExpense: (id: string) => Promise<void>;
+  onSaveCategory: (category: ExpenseCategory) => Promise<void>;
+  onSaveVendor: (vendor: Vendor) => Promise<void>;
+  onSaveAccount: (account: Account) => Promise<void>;
+  onAddLedgerEntry: (entry: any) => Promise<void>;
+  onSaveTemplate: (template: ExpenseTemplate) => Promise<void>;
+  onDeleteTemplate: (id: string) => Promise<void>;
 }
 
-const ExpensesView: React.FC<Props> = ({ role, accounts, currentUser }) => {
-  const [activeTab, setActiveTab] = useState<'entry' | 'history' | 'categories' | 'vendors'>('entry');
+const defaultCategories: ExpenseCategory[] = [
+  { id: 'ops', name: 'Operational', subcategories: ['Utility', 'Rent', 'Repairs'] },
+  { id: 'goods', name: 'Ingredients and goods to be sold', subcategories: ['Vegetables', 'Meat', 'Dairy', 'Packaging'] },
+  { id: 'staff', name: 'Staff', subcategories: ['Meals', 'Uniforms', 'Training'] },
+  { id: 'marketing', name: 'Marketing', subcategories: ['Social Media', 'Flyers', 'Events'] },
+];
+
+const ExpensesView: React.FC<Props> = ({
+  role,
+  accounts,
+  currentUser,
+  expenses: remoteExpenses,
+  categories: remoteCategories,
+  vendors: remoteVendors,
+  templates: remoteTemplates,
+  onSaveExpense,
+  onDeleteExpense,
+  onSaveCategory,
+  onSaveVendor,
+  onSaveAccount,
+  onAddLedgerEntry,
+  onSaveTemplate,
+  onDeleteTemplate
+}) => {
+  const [activeTab, setActiveTab] = useState<'quick' | 'entry' | 'history' | 'categories' | 'vendors'>('quick');
   const isAdmin = role === UserRole.ADMIN;
 
-  // Mock initial data
-  const [categories, setCategories] = useState<ExpenseCategory[]>([
-    { id: 'ops', name: 'Operational', subcategories: ['Utility', 'Rent', 'Repairs'] },
-    { id: 'goods', name: 'Ingredients and goods to be sold', subcategories: ['Vegetables', 'Meat', 'Dairy', 'Packaging'] },
-    { id: 'staff', name: 'Staff', subcategories: ['Meals', 'Uniforms', 'Training'] },
-    { id: 'marketing', name: 'Marketing', subcategories: ['Social Media', 'Flyers', 'Events'] },
-  ]);
 
-  // Fix: Added missing payableBalance property to satisfy Vendor interface
-  const [vendors, setVendors] = useState<Vendor[]>([]);
 
-  const [transactions, setTransactions] = useState<ExpenseTransaction[]>([]);
+  const categories = useMemo(() => {
+    const merged = [...defaultCategories];
+    remoteCategories.forEach(remoteCat => {
+      const index = merged.findIndex(c => c.id === remoteCat.id);
+      if (index > -1) {
+        merged[index] = remoteCat;
+      } else {
+        merged.push(remoteCat);
+      }
+    });
+    return merged;
+  }, [remoteCategories]);
+
+  const vendors = remoteVendors;
+  const transactions = remoteExpenses;
+  const templates = remoteTemplates;
 
   // Form State
   const [formData, setFormData] = useState({
@@ -57,15 +101,14 @@ const ExpensesView: React.FC<Props> = ({ role, accounts, currentUser }) => {
     newSubcategory: '',
     vendorId: '',
     newVendorName: '',
-    sourceAccountId: accounts.find(a => a.type === 'Petty cash')?.id || accounts[0]?.id || '',
+    sourceAccountId: accounts.find(a => a.type === AccountType.PETTY_CASH)?.id || accounts[0]?.id || '',
     receivesStock: false,
-    saveAsPreset: false,
     isRecurring: false,
     recurringFrequency: 'Monthly' as any,
     details: ''
   });
 
-  const handleAddTransaction = () => {
+  const handleAddTransaction = async () => {
     if (!formData.amount) return;
 
     const mainCat = categories.find(c => c.id === formData.mainCategoryId);
@@ -73,22 +116,23 @@ const ExpensesView: React.FC<Props> = ({ role, accounts, currentUser }) => {
 
     // On-the-fly subcategory addition
     if (formData.newSubcategory && mainCat) {
-      setCategories(prev => prev.map(c =>
-        c.id === mainCat.id ? { ...c, subcategories: [...new Set([...c.subcategories, formData.newSubcategory])] } : c
-      ));
+      const updatedCat = {
+        ...mainCat,
+        subcategories: [...new Set([...mainCat.subcategories, formData.newSubcategory])]
+      };
+      await onSaveCategory(updatedCat);
     }
 
     // On-the-fly vendor addition
     let finalVendorName = '';
     let finalVendorId = formData.vendorId;
     if (formData.newVendorName) {
-      // Fix: Added missing payableBalance to satisfy Vendor interface
       const newV: Vendor = {
         id: Math.random().toString(36).substr(2, 9),
         name: formData.newVendorName,
         payableBalance: 0
       };
-      setVendors(prev => [...prev, newV]);
+      await onSaveVendor(newV);
       finalVendorId = newV.id;
       finalVendorName = newV.name;
     } else {
@@ -96,40 +140,131 @@ const ExpensesView: React.FC<Props> = ({ role, accounts, currentUser }) => {
     }
 
     const sourceAcc = accounts.find(a => a.id === formData.sourceAccountId);
-    const isPending = sourceAcc?.type === 'Payable';
+    if (!sourceAcc) {
+      alert("Please select a valid source of funds.");
+      return;
+    }
+
+    const amountCents = toCents(formData.amount);
+    const isPending = sourceAcc.type === AccountType.PAYABLE;
 
     const newTx: ExpenseTransaction = {
       id: Math.random().toString(36).substr(2, 9),
       date: formData.date,
-      amount: toCents(formData.amount),
+      amount: amountCents,
       mainCategory: mainCat?.name || '',
-      subcategory: sub,
-      vendorId: finalVendorId,
-      vendorName: finalVendorName,
+      subcategory: sub || '',
+      vendorId: finalVendorId || '',
+      vendorName: finalVendorName || '',
       sourceAccountId: formData.sourceAccountId,
       isPendingPayable: isPending,
       receivesStock: formData.receivesStock,
       isRecurring: formData.isRecurring,
-      recurringFrequency: formData.isRecurring ? formData.recurringFrequency : undefined,
-      details: formData.details,
+      details: formData.details || '',
       user: currentUser.name
     };
 
-    setTransactions([newTx, ...transactions]);
-    setActiveTab('history');
+    if (formData.isRecurring && formData.recurringFrequency) {
+      newTx.recurringFrequency = formData.recurringFrequency;
+    }
 
-    // Reset form partially
-    setFormData({
-      ...formData,
-      amount: '',
-      newSubcategory: '',
-      newVendorName: '',
-      details: ''
-    });
+    try {
+      // 1. Save Transaction
+      console.log("Step 1: Saving transaction to Firestore...");
+      await onSaveExpense(newTx);
+
+      // 2. Update Account Balance
+      console.log("Step 2: Updating account balance...");
+      await onSaveAccount({
+        ...sourceAcc,
+        currentBalance: sourceAcc.currentBalance - amountCents
+      });
+
+      // 3. Create Ledger Entry
+      console.log("Step 3: Creating ledger entry...");
+      await onAddLedgerEntry({
+        id: Math.random().toString(36).substr(2, 9),
+        desc: `Expense: ${mainCat?.name}${sub ? ' - ' + sub : ''}${finalVendorName ? ' (' + finalVendorName + ')' : ''}`,
+        account: sourceAcc.name,
+        type: 'Expense',
+        amount: amountCents,
+        date: formData.date,
+        time: new Date().toLocaleTimeString(),
+        user: currentUser.name,
+        status: 'Posted'
+      });
+
+      console.log("Success: Expense posted fully.");
+      setActiveTab('history');
+
+      // Reset form partially
+      setFormData({
+        ...formData,
+        amount: '',
+        newSubcategory: '',
+        newVendorName: '',
+        details: ''
+      });
+    } catch (error) {
+      console.error("Critical error in handleAddTransaction:", error);
+      alert(`Failed to post expense: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    }
   };
 
-  const deleteTransaction = (id: string) => {
-    setTransactions(transactions.filter(t => t.id !== id));
+  const handleSaveTemplate = async () => {
+    if (!formData.amount) {
+      alert("Please enter an amount first.");
+      return;
+    }
+    const name = window.prompt("Enter a name for this template (e.g., Office Rent, Daily Milk):");
+    if (!name) return;
+
+    const template: ExpenseTemplate = {
+      id: Math.random().toString(36).substr(2, 9),
+      name,
+      amount: toCents(formData.amount),
+      mainCategory: categories.find(c => c.id === formData.mainCategoryId)?.name || '',
+      subcategory: formData.newSubcategory || formData.subcategory || '',
+      vendorId: formData.vendorId || '',
+      vendorName: vendors.find(v => v.id === formData.vendorId)?.name || formData.newVendorName || '',
+      sourceAccountId: formData.sourceAccountId,
+      receivesStock: formData.receivesStock,
+      details: formData.details || ''
+    };
+
+    console.log("Saving template payload:", template);
+
+    try {
+      await onSaveTemplate(template);
+      console.log("Success: Template saved to Firestore.");
+      alert("Template saved successfully!");
+    } catch (error) {
+      console.error("Error saving template to Firestore:", error);
+      alert(`Failed to save template: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    }
+  };
+
+  const applyTemplate = (tmp: ExpenseTemplate) => {
+    const cat = categories.find(c => c.name === tmp.mainCategory);
+    setFormData({
+      ...formData,
+      amount: (tmp.amount / 100).toString(),
+      mainCategoryId: cat?.id || 'ops',
+      subcategory: tmp.subcategory || '',
+      newSubcategory: '',
+      vendorId: tmp.vendorId || '',
+      newVendorName: '',
+      sourceAccountId: tmp.sourceAccountId,
+      receivesStock: tmp.receivesStock,
+      details: tmp.details
+    });
+    setActiveTab('entry');
+  };
+
+  const deleteTransaction = async (id: string) => {
+    if (window.confirm("Are you sure you want to delete this expense record? Note: This will not automatically reverse account balances.")) {
+      await onDeleteExpense(id);
+    }
   };
 
   const renderEntry = () => (
@@ -177,8 +312,8 @@ const ExpensesView: React.FC<Props> = ({ role, accounts, currentUser }) => {
                   key={cat.id}
                   onClick={() => setFormData({ ...formData, mainCategoryId: cat.id, subcategory: '', newSubcategory: '' })}
                   className={`flex flex-col items-center gap-2 p-4 rounded-2xl border-2 transition-all ${formData.mainCategoryId === cat.id
-                      ? 'bg-indigo-600 border-indigo-500 text-white shadow-lg'
-                      : 'bg-slate-950 border-slate-800 text-slate-500 hover:border-slate-700'
+                    ? 'bg-indigo-600 border-indigo-500 text-white shadow-lg'
+                    : 'bg-slate-950 border-slate-800 text-slate-500 hover:border-slate-700'
                     }`}
                 >
                   {cat.id === 'ops' && <Truck size={24} />}
@@ -276,13 +411,7 @@ const ExpensesView: React.FC<Props> = ({ role, accounts, currentUser }) => {
               {formData.receivesStock ? <CheckSquare className="text-indigo-400" size={24} /> : <Square className="text-slate-700 group-hover:text-slate-500" size={24} />}
               <span className={`text-xs font-black uppercase tracking-widest ${formData.receivesStock ? 'text-white' : 'text-slate-500'}`}>Receives Stock</span>
             </button>
-            <button
-              onClick={() => setFormData({ ...formData, saveAsPreset: !formData.saveAsPreset })}
-              className="flex items-center gap-3 group"
-            >
-              {formData.saveAsPreset ? <CheckSquare className="text-indigo-400" size={24} /> : <Square className="text-slate-700 group-hover:text-slate-500" size={24} />}
-              <span className={`text-xs font-black uppercase tracking-widest ${formData.saveAsPreset ? 'text-white' : 'text-slate-500'}`}>Save as Preset</span>
-            </button>
+
             <button
               onClick={() => setFormData({ ...formData, isRecurring: !formData.isRecurring })}
               className="flex items-center gap-3 group"
@@ -303,8 +432,8 @@ const ExpensesView: React.FC<Props> = ({ role, accounts, currentUser }) => {
                     key={freq}
                     onClick={() => setFormData({ ...formData, recurringFrequency: freq as any })}
                     className={`px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-wider transition-all border ${formData.recurringFrequency === freq
-                        ? 'bg-indigo-600 border-indigo-500 text-white'
-                        : 'bg-slate-900 border-slate-800 text-slate-500'
+                      ? 'bg-indigo-600 border-indigo-500 text-white'
+                      : 'bg-slate-900 border-slate-800 text-slate-500'
                       }`}
                   >
                     {freq}
@@ -325,12 +454,67 @@ const ExpensesView: React.FC<Props> = ({ role, accounts, currentUser }) => {
           </div>
         </div>
 
-        <button
-          onClick={handleAddTransaction}
-          className="w-full flex items-center justify-center gap-4 bg-indigo-600 hover:bg-indigo-500 text-white font-black py-8 rounded-[2.5rem] shadow-2xl shadow-indigo-500/20 transition-all text-xl uppercase tracking-widest"
-        >
-          <Save size={28} /> Post Expense
-        </button>
+        <div className="flex gap-4">
+          <button
+            onClick={handleAddTransaction}
+            className="flex-[2] flex items-center justify-center gap-4 bg-indigo-600 hover:bg-indigo-500 text-white font-black py-8 rounded-[2.5rem] shadow-2xl shadow-indigo-500/20 transition-all text-xl uppercase tracking-widest"
+          >
+            <Save size={28} /> Post Expense
+          </button>
+          <button
+            onClick={handleSaveTemplate}
+            className="flex-1 flex items-center justify-center gap-3 bg-slate-800 hover:bg-slate-700 text-slate-300 font-black py-8 rounded-[2.5rem] transition-all text-sm uppercase tracking-widest"
+          >
+            <HistoryIcon size={20} /> Save as Template
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+
+  const renderQuickExpenses = () => (
+    <div className="space-y-8 animate-in fade-in duration-500 pb-20">
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+        {templates.map(tmp => (
+          <div key={tmp.id} className="glass p-8 rounded-[2.5rem] border-l-4 border-l-indigo-500 hover:border-indigo-500/50 transition-all group relative">
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                if (window.confirm("Delete this template?")) onDeleteTemplate(tmp.id);
+              }}
+              className="absolute top-6 right-6 p-2 text-slate-600 hover:text-rose-500 opacity-0 group-hover:opacity-100 transition-all"
+            >
+              <Trash2 size={18} />
+            </button>
+            <div className="space-y-6">
+              <div className="space-y-1">
+                <h4 className="text-2xl font-black text-white">{tmp.name}</h4>
+                <p className="text-[10px] font-black text-indigo-400 uppercase tracking-widest flex items-center gap-2">
+                  <Tag size={12} /> {tmp.mainCategory} {tmp.subcategory && `• ${tmp.subcategory}`}
+                </p>
+              </div>
+              <div className="p-4 bg-slate-950/50 rounded-2xl border border-slate-800/50">
+                <p className="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-1">Estimated Amount</p>
+                <span className="text-2xl font-black text-white">{formatCurrency(tmp.amount)}</span>
+              </div>
+              <button
+                onClick={() => applyTemplate(tmp)}
+                className="w-full bg-indigo-600 hover:bg-indigo-500 text-white font-black py-4 rounded-2xl shadow-lg shadow-indigo-500/10 transition-all flex items-center justify-center gap-3 uppercase tracking-widest text-xs"
+              >
+                <Plus size={18} /> Use Template
+              </button>
+            </div>
+          </div>
+        ))}
+        {templates.length === 0 && (
+          <div className="col-span-full py-32 text-center glass rounded-[3rem] border-dashed border-2 border-slate-800">
+            <div className="w-20 h-20 bg-slate-900 rounded-3xl flex items-center justify-center mx-auto mb-6 text-slate-700">
+              <Zap size={40} />
+            </div>
+            <h3 className="text-2xl font-black text-slate-400">No Templates Found</h3>
+            <p className="text-slate-500 max-w-sm mx-auto mt-2 font-medium">Save your recurring expenses as templates to speed up your daily workflow.</p>
+          </div>
+        )}
       </div>
     </div>
   );
@@ -484,20 +668,76 @@ const ExpensesView: React.FC<Props> = ({ role, accounts, currentUser }) => {
     </div>
   );
 
+  const renderDiagnostics = () => (
+    <div className="space-y-8 animate-in fade-in duration-500 pb-20">
+      <div className="glass p-10 rounded-[3rem] border-2 border-slate-800">
+        <h3 className="text-2xl font-black text-white mb-4 flex items-center gap-3">
+          <Activity size={24} className="text-indigo-400" /> System Diagnostics
+        </h3>
+        <p className="text-slate-400 mb-8 font-medium">Use these tools if you encounter permission errors when saving data.</p>
+
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+          <div className="space-y-4 p-6 bg-slate-900/50 rounded-2xl border border-slate-800">
+            <h4 className="text-xs font-black uppercase tracking-widest text-slate-500">User Context</h4>
+            <div className="space-y-2">
+              <p className="text-sm font-bold text-slate-300 flex justify-between">
+                <span>Display Name:</span> <span className="text-white">{currentUser.name}</span>
+              </p>
+              <p className="text-sm font-bold text-slate-300 flex justify-between">
+                <span>UI Role:</span> <span className="text-indigo-400">{role}</span>
+              </p>
+            </div>
+          </div>
+
+          <div className="flex items-center">
+            <button
+              onClick={async () => {
+                try {
+                  const { db, auth } = await import('../firebase');
+                  const { doc, setDoc } = await import('firebase/firestore');
+                  if (!auth.currentUser) throw new Error("Not logged in");
+
+                  await setDoc(doc(db, 'users', auth.currentUser.uid), {
+                    name: auth.currentUser.displayName || currentUser.name,
+                    role: role,
+                    email: auth.currentUser.email,
+                    lastSync: new Date().toISOString()
+                  }, { merge: true });
+
+                  alert("Profile synced successfully! Try saving templates again.");
+                } catch (err: any) {
+                  console.error("Manual sync failed:", err);
+                  alert("Sync failed: " + err.message);
+                }
+              }}
+              className="w-full bg-slate-800 hover:bg-slate-700 text-white font-black py-4 rounded-xl border border-slate-700 transition-all flex items-center justify-center gap-3 uppercase tracking-widest text-xs"
+            >
+              <RefreshCw size={16} /> Fix My Firestore Profile
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+
   return (
     <div className="space-y-8">
       {/* Tab Navigation */}
       <div className="flex flex-wrap gap-4 p-1.5 glass rounded-2xl w-fit">
+        <button onClick={() => setActiveTab('quick')} className={`px-6 py-2.5 rounded-xl font-black text-[10px] uppercase tracking-widest transition-all ${activeTab === 'quick' ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-500/20' : 'text-slate-500 hover:text-slate-300'}`}>Quick Expenses</button>
         <button onClick={() => setActiveTab('entry')} className={`px-6 py-2.5 rounded-xl font-black text-[10px] uppercase tracking-widest transition-all ${activeTab === 'entry' ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-500/20' : 'text-slate-500 hover:text-slate-300'}`}>New Entry</button>
         <button onClick={() => setActiveTab('history')} className={`px-6 py-2.5 rounded-xl font-black text-[10px] uppercase tracking-widest transition-all ${activeTab === 'history' ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-500/20' : 'text-slate-500 hover:text-slate-300'}`}>History</button>
         <button onClick={() => setActiveTab('categories')} className={`px-6 py-2.5 rounded-xl font-black text-[10px] uppercase tracking-widest transition-all ${activeTab === 'categories' ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-500/20' : 'text-slate-500 hover:text-slate-300'}`}>Categories</button>
         <button onClick={() => setActiveTab('vendors')} className={`px-6 py-2.5 rounded-xl font-black text-[10px] uppercase tracking-widest transition-all ${activeTab === 'vendors' ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-500/20' : 'text-slate-500 hover:text-slate-300'}`}>Vendors</button>
+        <button onClick={() => setActiveTab('diag' as any)} className={`px-6 py-2.5 rounded-xl font-black text-[10px] uppercase tracking-widest transition-all ${activeTab === 'diag' ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-500/20' : 'text-slate-500 hover:text-slate-300'}`}>Diagnostics</button>
       </div>
 
+      {activeTab === 'quick' && renderQuickExpenses()}
       {activeTab === 'entry' && renderEntry()}
       {activeTab === 'history' && renderHistory()}
       {activeTab === 'categories' && renderCategories()}
       {activeTab === 'vendors' && renderVendors()}
+      {activeTab === ('diag' as any) && renderDiagnostics()}
     </div>
   );
 };

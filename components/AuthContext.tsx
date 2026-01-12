@@ -41,12 +41,13 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
                     // Attempt to fetch profile from Firestore, but don't block the whole app if it fails
                     try {
+                        console.log("Auth: Checking Firestore profile for UID:", firebaseUser.uid);
                         const userDoc = await getDoc(doc(db, 'users', firebaseUser.uid));
 
                         if (userDoc.exists()) {
                             const userData = userDoc.data();
-                            // Priority: Firestore role > Email check > Default Manager
                             const finalRole = userData.role || (isEmailAdmin ? UserRole.ADMIN : UserRole.MANAGER);
+                            console.log("Auth: Profile found. Role:", finalRole);
 
                             setUser({
                                 id: firebaseUser.uid,
@@ -55,7 +56,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
                                 email: firebaseUser.email || undefined
                             });
                         } else {
-                            // Create a default user profile if none exists
+                            console.log("Auth: No profile found. Creating default...");
                             const newUser: User = {
                                 id: firebaseUser.uid,
                                 name: firebaseUser.displayName || 'New User',
@@ -68,17 +69,20 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
                                 email: newUser.email,
                                 createdAt: new Date().toISOString()
                             });
+                            console.log("Auth: Profile created successfully.");
                             setUser(newUser);
                         }
                     } catch (firestoreError) {
-                        console.warn("Firestore profile sync failed, falling back to basic auth:", firestoreError);
+                        console.error("Auth: Firestore profile sync failed:", firestoreError);
                         // Fallback to basic Firebase Auth info
-                        setUser({
+                        const fallbackUser = {
                             id: firebaseUser.uid,
                             name: firebaseUser.displayName || 'User',
                             role: isEmailAdmin ? UserRole.ADMIN : UserRole.MANAGER,
                             email: firebaseUser.email || undefined
-                        });
+                        };
+                        console.warn("Auth: Falling back to local role determination:", fallbackUser.role);
+                        setUser(fallbackUser);
                     }
                 } else {
                     setUser(null);
