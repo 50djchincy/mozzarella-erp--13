@@ -1,16 +1,16 @@
 
 import React, { useState } from 'react';
-import { 
-  Plus, 
-  Search, 
-  Filter, 
-  MoreHorizontal, 
-  X, 
-  ArrowDownLeft, 
-  ArrowUpRight, 
-  Layers, 
-  Coins, 
-  Wallet, 
+import {
+  Plus,
+  Search,
+  Filter,
+  MoreHorizontal,
+  X,
+  ArrowDownLeft,
+  ArrowUpRight,
+  Layers,
+  Coins,
+  Wallet,
   Zap,
   ArrowLeft,
   Calendar,
@@ -25,10 +25,10 @@ import { formatCurrency, toCents } from '../utils';
 interface Props {
   role: UserRole;
   accounts: Account[];
-  setAccounts: React.Dispatch<React.SetStateAction<Account[]>>;
+  onSaveAccount: (account: Account) => Promise<void>;
 }
 
-const MoneyLabView: React.FC<Props> = ({ role, accounts, setAccounts }) => {
+const MoneyLabView: React.FC<Props> = ({ role, accounts, onSaveAccount }) => {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isTransferModalOpen, setIsTransferModalOpen] = useState(false);
   const [selectedAccount, setSelectedAccount] = useState<Account | null>(null);
@@ -46,7 +46,7 @@ const MoneyLabView: React.FC<Props> = ({ role, accounts, setAccounts }) => {
 
   const isAdmin = role === UserRole.ADMIN;
 
-  const handleCreateAccount = () => {
+  const handleCreateAccount = async () => {
     if (!isAdmin) return;
     if (!newName.trim()) return;
     const balance = toCents(newBalance);
@@ -57,26 +57,31 @@ const MoneyLabView: React.FC<Props> = ({ role, accounts, setAccounts }) => {
       startingBalance: balance,
       currentBalance: balance,
     };
-    setAccounts([...accounts, newAcc]);
+
+    await onSaveAccount(newAcc);
+
     setIsModalOpen(false);
     setNewName('');
     setNewBalance('');
     setNewType(AccountType.ASSETS);
   };
 
-  const handleTransfer = () => {
+  const handleTransfer = async () => {
     const amountCents = toCents(transferAmount);
     if (amountCents <= 0 || !transferFrom || !transferTo || transferFrom === transferTo) return;
 
-    setAccounts(prev => prev.map(acc => {
-      if (acc.id === transferFrom) {
-        return { ...acc, currentBalance: acc.currentBalance - amountCents };
-      }
-      if (acc.id === transferTo) {
-        return { ...acc, currentBalance: acc.currentBalance + amountCents };
-      }
-      return acc;
-    }));
+    const fromAcc = accounts.find(a => a.id === transferFrom);
+    const toAcc = accounts.find(a => a.id === transferTo);
+
+    if (!fromAcc || !toAcc) return;
+
+    const updatedFrom = { ...fromAcc, currentBalance: fromAcc.currentBalance - amountCents };
+    const updatedTo = { ...toAcc, currentBalance: toAcc.currentBalance + amountCents };
+
+    await Promise.all([
+      onSaveAccount(updatedFrom),
+      onSaveAccount(updatedTo)
+    ]);
 
     setIsTransferModalOpen(false);
     setTransferAmount('');
@@ -105,7 +110,7 @@ const MoneyLabView: React.FC<Props> = ({ role, accounts, setAccounts }) => {
     return (
       <div className="space-y-6 animate-in fade-in slide-in-from-right-4 duration-300">
         <div className="flex items-center justify-between">
-          <button 
+          <button
             onClick={() => setSelectedAccount(null)}
             className="flex items-center gap-2 text-slate-400 hover:text-white transition-colors"
           >
@@ -134,9 +139,9 @@ const MoneyLabView: React.FC<Props> = ({ role, accounts, setAccounts }) => {
               <h3 className="text-4xl font-black text-white">{formatCurrency(selectedAccount.currentBalance)}</h3>
             </div>
           </div>
-          
+
           <div className="mt-8 flex gap-4">
-            <button 
+            <button
               onClick={() => openTransferModal(selectedAccount.id)}
               className="flex-1 flex items-center justify-center gap-2 bg-indigo-600 hover:bg-indigo-500 py-4 rounded-2xl font-bold transition-all text-white"
             >
@@ -160,14 +165,14 @@ const MoneyLabView: React.FC<Props> = ({ role, accounts, setAccounts }) => {
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div className="relative flex-1 max-md:max-w-none max-w-md">
           <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-500" size={18} />
-          <input 
-            type="text" 
-            placeholder="Search accounts..." 
+          <input
+            type="text"
+            placeholder="Search accounts..."
             className="w-full bg-slate-900 border border-slate-800 rounded-2xl pl-12 pr-4 py-3 text-white focus:outline-none focus:ring-2 focus:ring-indigo-500 transition-all"
           />
         </div>
         <div className="flex items-center gap-3">
-          <button 
+          <button
             onClick={() => openTransferModal()}
             className="flex-1 sm:flex-none flex items-center justify-center gap-2 bg-slate-800 hover:bg-slate-700 text-white px-6 py-3 rounded-2xl font-bold transition-all"
           >
@@ -175,7 +180,7 @@ const MoneyLabView: React.FC<Props> = ({ role, accounts, setAccounts }) => {
             Transfer
           </button>
           {isAdmin ? (
-            <button 
+            <button
               onClick={() => setIsModalOpen(true)}
               className="flex-1 sm:flex-none flex items-center justify-center gap-2 bg-indigo-600 hover:bg-indigo-500 text-white px-6 py-3 rounded-2xl font-bold shadow-lg shadow-indigo-500/20 transition-all"
             >
@@ -183,7 +188,7 @@ const MoneyLabView: React.FC<Props> = ({ role, accounts, setAccounts }) => {
               Add Account
             </button>
           ) : (
-            <button 
+            <button
               disabled
               className="flex-1 sm:flex-none flex items-center justify-center gap-2 bg-slate-800 text-slate-500 px-6 py-3 rounded-2xl font-bold opacity-50 cursor-not-allowed"
             >
@@ -196,8 +201,8 @@ const MoneyLabView: React.FC<Props> = ({ role, accounts, setAccounts }) => {
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
         {accounts.map((acc) => (
-          <div 
-            key={acc.id} 
+          <div
+            key={acc.id}
             onClick={() => setSelectedAccount(acc)}
             className="glass p-6 rounded-3xl hover:border-indigo-500/50 transition-all cursor-pointer group"
           >
@@ -205,17 +210,17 @@ const MoneyLabView: React.FC<Props> = ({ role, accounts, setAccounts }) => {
               <div className="p-3 bg-slate-800 rounded-2xl text-indigo-400 group-hover:bg-indigo-600 group-hover:text-white transition-all">
                 {getIconForType(acc.type)}
               </div>
-              <button 
+              <button
                 onClick={(e) => e.stopPropagation()}
                 className="p-2 text-slate-500 hover:text-white transition-colors"
               >
                 <MoreHorizontal size={20} />
               </button>
             </div>
-            
+
             <h3 className="text-xl font-bold mb-1 text-white group-hover:text-indigo-300 transition-colors">{acc.name}</h3>
             <p className="text-slate-500 text-[10px] mb-6 uppercase tracking-widest font-black">{acc.type}</p>
-            
+
             <div className="pt-6 border-t border-slate-800">
               <p className="text-slate-400 text-[10px] font-black uppercase tracking-widest mb-1">Current Balance</p>
               <div className="flex items-baseline gap-2">
@@ -241,11 +246,11 @@ const MoneyLabView: React.FC<Props> = ({ role, accounts, setAccounts }) => {
             <div className="p-8 pt-0 space-y-8">
               <div className="space-y-3">
                 <label className="text-[10px] font-black uppercase tracking-widest text-slate-500 px-2">Account Name</label>
-                <input 
-                  type="text" 
+                <input
+                  type="text"
                   value={newName}
                   onChange={(e) => setNewName(e.target.value)}
-                  placeholder="e.g. Main Sales" 
+                  placeholder="e.g. Main Sales"
                   className="w-full bg-slate-950 border border-slate-800 rounded-2xl px-6 py-4 text-white font-semibold focus:ring-2 focus:ring-indigo-500 outline-none"
                 />
               </div>
@@ -254,11 +259,11 @@ const MoneyLabView: React.FC<Props> = ({ role, accounts, setAccounts }) => {
                 <label className="text-[10px] font-black uppercase tracking-widest text-slate-500 px-2">Starting Balance</label>
                 <div className="relative">
                   <span className="absolute left-6 top-1/2 -translate-y-1/2 text-slate-500 font-bold">$</span>
-                  <input 
-                    type="number" 
+                  <input
+                    type="number"
                     value={newBalance}
                     onChange={(e) => setNewBalance(e.target.value)}
-                    placeholder="0.00" 
+                    placeholder="0.00"
                     className="w-full bg-slate-950 border border-slate-800 rounded-2xl pl-10 pr-6 py-4 text-white font-bold text-lg focus:ring-2 focus:ring-indigo-500 outline-none"
                   />
                 </div>
@@ -278,11 +283,10 @@ const MoneyLabView: React.FC<Props> = ({ role, accounts, setAccounts }) => {
                     <button
                       key={item.type}
                       onClick={() => setNewType(item.type)}
-                      className={`flex items-center gap-3 p-4 rounded-2xl border-2 transition-all ${
-                        newType === item.type 
-                          ? 'bg-indigo-600/10 border-indigo-500 text-indigo-400' 
+                      className={`flex items-center gap-3 p-4 rounded-2xl border-2 transition-all ${newType === item.type
+                          ? 'bg-indigo-600/10 border-indigo-500 text-indigo-400'
                           : 'bg-slate-950 border-slate-800 text-slate-500 hover:bg-slate-800'
-                      }`}
+                        }`}
                     >
                       <item.icon size={18} />
                       <span className="text-xs font-bold">{item.label}</span>
@@ -291,7 +295,7 @@ const MoneyLabView: React.FC<Props> = ({ role, accounts, setAccounts }) => {
                 </div>
               </div>
 
-              <button 
+              <button
                 onClick={handleCreateAccount}
                 className="w-full bg-indigo-600 hover:bg-indigo-500 text-white font-black py-5 rounded-2xl shadow-xl shadow-indigo-500/20 transition-all text-lg"
               >
@@ -318,7 +322,7 @@ const MoneyLabView: React.FC<Props> = ({ role, accounts, setAccounts }) => {
               <div className="flex items-center gap-4 bg-slate-950 p-4 rounded-3xl border border-slate-800">
                 <div className="flex-1 space-y-2">
                   <label className="text-[10px] font-black uppercase tracking-widest text-slate-500 block px-2">From</label>
-                  <select 
+                  <select
                     value={transferFrom}
                     onChange={(e) => setTransferFrom(e.target.value)}
                     className="w-full bg-slate-900 border border-slate-800 rounded-xl px-4 py-3 font-bold text-white outline-none focus:ring-indigo-500"
@@ -330,11 +334,11 @@ const MoneyLabView: React.FC<Props> = ({ role, accounts, setAccounts }) => {
                   </select>
                 </div>
                 <div className="pt-4 text-slate-700">
-                   <ArrowRightLeft size={20} />
+                  <ArrowRightLeft size={20} />
                 </div>
                 <div className="flex-1 space-y-2">
                   <label className="text-[10px] font-black uppercase tracking-widest text-slate-500 block px-2">To</label>
-                  <select 
+                  <select
                     value={transferTo}
                     onChange={(e) => setTransferTo(e.target.value)}
                     className="w-full bg-slate-900 border border-slate-800 rounded-xl px-4 py-3 font-bold text-white outline-none focus:ring-indigo-500"
@@ -351,11 +355,11 @@ const MoneyLabView: React.FC<Props> = ({ role, accounts, setAccounts }) => {
                 <label className="text-[10px] font-black uppercase tracking-widest text-slate-500 px-2">Transfer Amount</label>
                 <div className="relative">
                   <span className="absolute left-6 top-1/2 -translate-y-1/2 text-slate-500 font-bold">$</span>
-                  <input 
-                    type="number" 
+                  <input
+                    type="number"
                     value={transferAmount}
                     onChange={(e) => setTransferAmount(e.target.value)}
-                    placeholder="0.00" 
+                    placeholder="0.00"
                     className="w-full bg-slate-950 border border-slate-800 rounded-2xl pl-10 pr-6 py-4 text-white font-black text-2xl focus:ring-2 focus:ring-indigo-500 outline-none"
                   />
                 </div>
@@ -363,16 +367,16 @@ const MoneyLabView: React.FC<Props> = ({ role, accounts, setAccounts }) => {
 
               <div className="space-y-3">
                 <label className="text-[10px] font-black uppercase tracking-widest text-slate-500 px-2">Reference / Note</label>
-                <input 
-                  type="text" 
+                <input
+                  type="text"
                   value={transferNote}
                   onChange={(e) => setTransferNote(e.target.value)}
-                  placeholder="e.g. Restocking petty cash" 
+                  placeholder="e.g. Restocking petty cash"
                   className="w-full bg-slate-950 border border-slate-800 rounded-2xl px-6 py-4 text-white font-semibold outline-none focus:ring-2 focus:ring-indigo-500"
                 />
               </div>
 
-              <button 
+              <button
                 onClick={handleTransfer}
                 disabled={!transferFrom || !transferTo || !transferAmount || transferFrom === transferTo}
                 className="w-full bg-indigo-600 hover:bg-indigo-500 disabled:bg-slate-800 disabled:text-slate-600 text-white font-black py-5 rounded-2xl shadow-xl shadow-indigo-500/20 transition-all text-lg flex items-center justify-center gap-3"

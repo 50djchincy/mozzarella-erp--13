@@ -1,21 +1,21 @@
 
 import React, { useState, useMemo } from 'react';
-import { 
-  ShoppingBag, 
-  Truck, 
-  Users, 
-  Megaphone, 
-  Plus, 
-  Save, 
-  History as HistoryIcon, 
-  Settings2, 
-  Trash2, 
-  Calendar, 
-  Tag, 
-  User, 
-  Layers, 
-  Clock, 
-  CheckSquare, 
+import {
+  ShoppingBag,
+  Truck,
+  Users,
+  Megaphone,
+  Plus,
+  Save,
+  History as HistoryIcon,
+  Settings2,
+  Trash2,
+  Calendar,
+  Tag,
+  User,
+  Layers,
+  Clock,
+  CheckSquare,
   Square,
   Search,
   ChevronDown,
@@ -44,11 +44,7 @@ const ExpensesView: React.FC<Props> = ({ role, accounts, currentUser }) => {
   ]);
 
   // Fix: Added missing payableBalance property to satisfy Vendor interface
-  const [vendors, setVendors] = useState<Vendor[]>([
-    { id: 'v1', name: 'Fresh Farms', payableBalance: 0 },
-    { id: 'v2', name: 'City Power & Light', payableBalance: 0 },
-    { id: 'v3', name: 'Butcher Bros', payableBalance: 0 },
-  ]);
+  const [vendors, setVendors] = useState<Vendor[]>([]);
 
   const [transactions, setTransactions] = useState<ExpenseTransaction[]>([]);
 
@@ -74,10 +70,10 @@ const ExpensesView: React.FC<Props> = ({ role, accounts, currentUser }) => {
 
     const mainCat = categories.find(c => c.id === formData.mainCategoryId);
     const sub = formData.newSubcategory || formData.subcategory;
-    
+
     // On-the-fly subcategory addition
     if (formData.newSubcategory && mainCat) {
-      setCategories(prev => prev.map(c => 
+      setCategories(prev => prev.map(c =>
         c.id === mainCat.id ? { ...c, subcategories: [...new Set([...c.subcategories, formData.newSubcategory])] } : c
       ));
     }
@@ -87,10 +83,10 @@ const ExpensesView: React.FC<Props> = ({ role, accounts, currentUser }) => {
     let finalVendorId = formData.vendorId;
     if (formData.newVendorName) {
       // Fix: Added missing payableBalance to satisfy Vendor interface
-      const newV: Vendor = { 
-        id: Math.random().toString(36).substr(2, 9), 
-        name: formData.newVendorName, 
-        payableBalance: 0 
+      const newV: Vendor = {
+        id: Math.random().toString(36).substr(2, 9),
+        name: formData.newVendorName,
+        payableBalance: 0
       };
       setVendors(prev => [...prev, newV]);
       finalVendorId = newV.id;
@@ -121,7 +117,7 @@ const ExpensesView: React.FC<Props> = ({ role, accounts, currentUser }) => {
 
     setTransactions([newTx, ...transactions]);
     setActiveTab('history');
-    
+
     // Reset form partially
     setFormData({
       ...formData,
@@ -143,19 +139,19 @@ const ExpensesView: React.FC<Props> = ({ role, accounts, currentUser }) => {
           <h3 className="text-3xl font-black text-white">Record New Expense</h3>
           <p className="text-slate-500 font-medium">Log your operational and inventory spend accurately.</p>
         </div>
-        
+
         <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
           {/* Amount and Date */}
           <div className="space-y-3">
             <label className="text-[10px] font-black uppercase text-slate-500 tracking-widest px-2">Expense Amount</label>
             <div className="relative">
               <span className="absolute left-6 top-1/2 -translate-y-1/2 text-slate-500 font-black text-2xl">$</span>
-              <input 
-                type="number" 
+              <input
+                type="number"
                 value={formData.amount}
-                onChange={e => setFormData({...formData, amount: e.target.value})}
-                placeholder="0.00" 
-                className="w-full bg-slate-950 border border-slate-800 rounded-3xl pl-12 pr-8 py-6 text-3xl font-black text-white focus:ring-2 focus:ring-indigo-500 outline-none" 
+                onChange={e => setFormData({ ...formData, amount: e.target.value })}
+                placeholder="0.00"
+                className="w-full bg-slate-950 border border-slate-800 rounded-3xl pl-12 pr-8 py-6 text-3xl font-black text-white focus:ring-2 focus:ring-indigo-500 outline-none"
               />
             </div>
           </div>
@@ -163,11 +159,11 @@ const ExpensesView: React.FC<Props> = ({ role, accounts, currentUser }) => {
             <label className="text-[10px] font-black uppercase text-slate-500 tracking-widest px-2">Transaction Date</label>
             <div className="relative">
               <Calendar className="absolute left-6 top-1/2 -translate-y-1/2 text-slate-500" size={20} />
-              <input 
-                type="date" 
+              <input
+                type="date"
                 value={formData.date}
-                onChange={e => setFormData({...formData, date: e.target.value})}
-                className="w-full bg-slate-950 border border-slate-800 rounded-3xl pl-14 pr-8 py-6 text-xl font-bold text-white focus:ring-2 focus:ring-indigo-500 outline-none" 
+                onChange={e => setFormData({ ...formData, date: e.target.value })}
+                className="w-full bg-slate-950 border border-slate-800 rounded-3xl pl-14 pr-8 py-6 text-xl font-bold text-white focus:ring-2 focus:ring-indigo-500 outline-none"
               />
             </div>
           </div>
@@ -177,14 +173,13 @@ const ExpensesView: React.FC<Props> = ({ role, accounts, currentUser }) => {
             <label className="text-[10px] font-black uppercase text-slate-500 tracking-widest px-2">Main Category</label>
             <div className="grid grid-cols-2 gap-3">
               {categories.map(cat => (
-                <button 
-                  key={cat.id} 
-                  onClick={() => setFormData({...formData, mainCategoryId: cat.id, subcategory: '', newSubcategory: ''})}
-                  className={`flex flex-col items-center gap-2 p-4 rounded-2xl border-2 transition-all ${
-                    formData.mainCategoryId === cat.id 
-                      ? 'bg-indigo-600 border-indigo-500 text-white shadow-lg' 
+                <button
+                  key={cat.id}
+                  onClick={() => setFormData({ ...formData, mainCategoryId: cat.id, subcategory: '', newSubcategory: '' })}
+                  className={`flex flex-col items-center gap-2 p-4 rounded-2xl border-2 transition-all ${formData.mainCategoryId === cat.id
+                      ? 'bg-indigo-600 border-indigo-500 text-white shadow-lg'
                       : 'bg-slate-950 border-slate-800 text-slate-500 hover:border-slate-700'
-                  }`}
+                    }`}
                 >
                   {cat.id === 'ops' && <Truck size={24} />}
                   {cat.id === 'goods' && <ShoppingBag size={24} />}
@@ -199,9 +194,9 @@ const ExpensesView: React.FC<Props> = ({ role, accounts, currentUser }) => {
           <div className="space-y-3">
             <label className="text-[10px] font-black uppercase text-slate-500 tracking-widest px-2">Subcategory</label>
             <div className="space-y-3">
-              <select 
+              <select
                 value={formData.subcategory}
-                onChange={e => setFormData({...formData, subcategory: e.target.value, newSubcategory: ''})}
+                onChange={e => setFormData({ ...formData, subcategory: e.target.value, newSubcategory: '' })}
                 className="w-full bg-slate-950 border border-slate-800 rounded-2xl px-6 py-4 text-white font-bold outline-none focus:ring-2 focus:ring-indigo-500"
               >
                 <option value="">Select Existing Subcategory</option>
@@ -211,12 +206,12 @@ const ExpensesView: React.FC<Props> = ({ role, accounts, currentUser }) => {
               </select>
               <div className="relative">
                 <Tag className="absolute left-6 top-1/2 -translate-y-1/2 text-slate-500" size={18} />
-                <input 
-                  type="text" 
+                <input
+                  type="text"
                   value={formData.newSubcategory}
-                  onChange={e => setFormData({...formData, newSubcategory: e.target.value, subcategory: ''})}
-                  placeholder="Or enter new subcategory..." 
-                  className="w-full bg-slate-950 border border-slate-800 rounded-2xl pl-14 pr-6 py-4 text-white font-bold outline-none focus:ring-2 focus:ring-indigo-500" 
+                  onChange={e => setFormData({ ...formData, newSubcategory: e.target.value, subcategory: '' })}
+                  placeholder="Or enter new subcategory..."
+                  className="w-full bg-slate-950 border border-slate-800 rounded-2xl pl-14 pr-6 py-4 text-white font-bold outline-none focus:ring-2 focus:ring-indigo-500"
                 />
               </div>
             </div>
@@ -226,9 +221,9 @@ const ExpensesView: React.FC<Props> = ({ role, accounts, currentUser }) => {
           <div className="space-y-3">
             <label className="text-[10px] font-black uppercase text-slate-500 tracking-widest px-2">Vendor (If applicable)</label>
             <div className="space-y-3">
-              <select 
+              <select
                 value={formData.vendorId}
-                onChange={e => setFormData({...formData, vendorId: e.target.value, newVendorName: ''})}
+                onChange={e => setFormData({ ...formData, vendorId: e.target.value, newVendorName: '' })}
                 className="w-full bg-slate-950 border border-slate-800 rounded-2xl px-6 py-4 text-white font-bold outline-none focus:ring-2 focus:ring-indigo-500"
               >
                 <option value="">Select Vendor</option>
@@ -238,12 +233,12 @@ const ExpensesView: React.FC<Props> = ({ role, accounts, currentUser }) => {
               </select>
               <div className="relative">
                 <User className="absolute left-6 top-1/2 -translate-y-1/2 text-slate-500" size={18} />
-                <input 
-                  type="text" 
+                <input
+                  type="text"
                   value={formData.newVendorName}
-                  onChange={e => setFormData({...formData, newVendorName: e.target.value, vendorId: ''})}
-                  placeholder="Or create new vendor on the fly..." 
-                  className="w-full bg-slate-950 border border-slate-800 rounded-2xl pl-14 pr-6 py-4 text-white font-bold outline-none focus:ring-2 focus:ring-indigo-500" 
+                  onChange={e => setFormData({ ...formData, newVendorName: e.target.value, vendorId: '' })}
+                  placeholder="Or create new vendor on the fly..."
+                  className="w-full bg-slate-950 border border-slate-800 rounded-2xl pl-14 pr-6 py-4 text-white font-bold outline-none focus:ring-2 focus:ring-indigo-500"
                 />
               </div>
             </div>
@@ -254,9 +249,9 @@ const ExpensesView: React.FC<Props> = ({ role, accounts, currentUser }) => {
             <label className="text-[10px] font-black uppercase text-slate-500 tracking-widest px-2">Source of Funds</label>
             <div className="relative">
               <Layers className="absolute left-6 top-1/2 -translate-y-1/2 text-slate-500" size={20} />
-              <select 
+              <select
                 value={formData.sourceAccountId}
-                onChange={e => setFormData({...formData, sourceAccountId: e.target.value})}
+                onChange={e => setFormData({ ...formData, sourceAccountId: e.target.value })}
                 className="w-full bg-slate-950 border border-slate-800 rounded-2xl pl-14 pr-6 py-6 text-white font-bold outline-none focus:ring-2 focus:ring-indigo-500"
               >
                 {accounts.map(acc => (
@@ -274,22 +269,22 @@ const ExpensesView: React.FC<Props> = ({ role, accounts, currentUser }) => {
         {/* Checkboxes and Recurring */}
         <div className="space-y-8 pt-6 border-t border-slate-800/50">
           <div className="flex flex-wrap gap-8">
-            <button 
-              onClick={() => setFormData({...formData, receivesStock: !formData.receivesStock})}
+            <button
+              onClick={() => setFormData({ ...formData, receivesStock: !formData.receivesStock })}
               className="flex items-center gap-3 group"
             >
               {formData.receivesStock ? <CheckSquare className="text-indigo-400" size={24} /> : <Square className="text-slate-700 group-hover:text-slate-500" size={24} />}
               <span className={`text-xs font-black uppercase tracking-widest ${formData.receivesStock ? 'text-white' : 'text-slate-500'}`}>Receives Stock</span>
             </button>
-            <button 
-              onClick={() => setFormData({...formData, saveAsPreset: !formData.saveAsPreset})}
+            <button
+              onClick={() => setFormData({ ...formData, saveAsPreset: !formData.saveAsPreset })}
               className="flex items-center gap-3 group"
             >
               {formData.saveAsPreset ? <CheckSquare className="text-indigo-400" size={24} /> : <Square className="text-slate-700 group-hover:text-slate-500" size={24} />}
               <span className={`text-xs font-black uppercase tracking-widest ${formData.saveAsPreset ? 'text-white' : 'text-slate-500'}`}>Save as Preset</span>
             </button>
-            <button 
-              onClick={() => setFormData({...formData, isRecurring: !formData.isRecurring})}
+            <button
+              onClick={() => setFormData({ ...formData, isRecurring: !formData.isRecurring })}
               className="flex items-center gap-3 group"
             >
               {formData.isRecurring ? <CheckSquare className="text-indigo-400" size={24} /> : <Square className="text-slate-700 group-hover:text-slate-500" size={24} />}
@@ -304,14 +299,13 @@ const ExpensesView: React.FC<Props> = ({ role, accounts, currentUser }) => {
               </label>
               <div className="flex gap-2">
                 {['Daily', 'Weekly', 'Monthly', 'Quarterly'].map(freq => (
-                  <button 
+                  <button
                     key={freq}
-                    onClick={() => setFormData({...formData, recurringFrequency: freq as any})}
-                    className={`px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-wider transition-all border ${
-                      formData.recurringFrequency === freq 
-                        ? 'bg-indigo-600 border-indigo-500 text-white' 
+                    onClick={() => setFormData({ ...formData, recurringFrequency: freq as any })}
+                    className={`px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-wider transition-all border ${formData.recurringFrequency === freq
+                        ? 'bg-indigo-600 border-indigo-500 text-white'
                         : 'bg-slate-900 border-slate-800 text-slate-500'
-                    }`}
+                      }`}
                   >
                     {freq}
                   </button>
@@ -322,16 +316,16 @@ const ExpensesView: React.FC<Props> = ({ role, accounts, currentUser }) => {
 
           <div className="space-y-3">
             <label className="text-[10px] font-black uppercase text-slate-500 tracking-widest px-2">Details / Comments</label>
-            <textarea 
+            <textarea
               value={formData.details}
-              onChange={e => setFormData({...formData, details: e.target.value})}
-              placeholder="Enter specific item details or reference numbers..." 
-              className="w-full bg-slate-950 border border-slate-800 rounded-[2rem] px-8 py-6 text-white font-medium outline-none focus:ring-2 focus:ring-indigo-500 min-h-[120px] resize-none" 
+              onChange={e => setFormData({ ...formData, details: e.target.value })}
+              placeholder="Enter specific item details or reference numbers..."
+              className="w-full bg-slate-950 border border-slate-800 rounded-[2rem] px-8 py-6 text-white font-medium outline-none focus:ring-2 focus:ring-indigo-500 min-h-[120px] resize-none"
             />
           </div>
         </div>
 
-        <button 
+        <button
           onClick={handleAddTransaction}
           className="w-full flex items-center justify-center gap-4 bg-indigo-600 hover:bg-indigo-500 text-white font-black py-8 rounded-[2.5rem] shadow-2xl shadow-indigo-500/20 transition-all text-xl uppercase tracking-widest"
         >
@@ -352,7 +346,7 @@ const ExpensesView: React.FC<Props> = ({ role, accounts, currentUser }) => {
           </div>
         </div>
       </div>
-      
+
       {transactions.length === 0 ? (
         <div className="p-24 text-center space-y-4">
           <div className="w-20 h-20 bg-slate-900 rounded-3xl flex items-center justify-center mx-auto text-slate-700">
@@ -396,7 +390,7 @@ const ExpensesView: React.FC<Props> = ({ role, accounts, currentUser }) => {
                     <span className="text-lg font-black text-white">{formatCurrency(tx.amount)}</span>
                   </td>
                   <td className="px-6 py-5 text-right">
-                    <button 
+                    <button
                       onClick={() => deleteTransaction(tx.id)}
                       className="p-2 text-slate-600 hover:text-rose-500 transition-colors"
                     >
@@ -428,15 +422,15 @@ const ExpensesView: React.FC<Props> = ({ role, accounts, currentUser }) => {
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
           {categories.map(cat => (
             <div key={cat.id} className="bg-slate-900/50 border border-slate-800 rounded-[2rem] p-6 space-y-4">
-               <div className="flex justify-between items-center">
-                  <h4 className="text-lg font-black text-white uppercase tracking-tight">{cat.name}</h4>
-                  <button className="text-slate-600 hover:text-white transition-colors"><Settings2 size={18} /></button>
-               </div>
-               <div className="flex flex-wrap gap-2">
-                 {cat.subcategories.map(sub => (
-                   <span key={sub} className="px-3 py-1 bg-slate-950 border border-slate-800 rounded-lg text-[10px] font-bold text-slate-400">{sub}</span>
-                 ))}
-               </div>
+              <div className="flex justify-between items-center">
+                <h4 className="text-lg font-black text-white uppercase tracking-tight">{cat.name}</h4>
+                <button className="text-slate-600 hover:text-white transition-colors"><Settings2 size={18} /></button>
+              </div>
+              <div className="flex flex-wrap gap-2">
+                {cat.subcategories.map(sub => (
+                  <span key={sub} className="px-3 py-1 bg-slate-950 border border-slate-800 rounded-lg text-[10px] font-bold text-slate-400">{sub}</span>
+                ))}
+              </div>
             </div>
           ))}
           <button className="border-2 border-dashed border-slate-800 rounded-[2rem] flex items-center justify-center gap-3 text-slate-500 hover:border-indigo-500 hover:text-indigo-400 transition-all py-10">
@@ -444,7 +438,7 @@ const ExpensesView: React.FC<Props> = ({ role, accounts, currentUser }) => {
           </button>
         </div>
       </div>
-      
+
       {!isAdmin && (
         <div className="p-6 bg-amber-400/10 border border-amber-400/20 rounded-3xl flex items-start gap-4">
           <AlertTriangle className="text-amber-400 shrink-0" size={24} />
@@ -477,13 +471,13 @@ const ExpensesView: React.FC<Props> = ({ role, accounts, currentUser }) => {
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
         {vendors.map(v => (
           <div key={v.id} className="bg-slate-900/50 border border-slate-800 p-6 rounded-[2rem] hover:border-emerald-500/30 transition-all flex items-center justify-between group">
-             <div>
-                <h4 className="text-lg font-black text-white">{v.name}</h4>
-                <p className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">Active Partner</p>
-             </div>
-             <button className="p-2 text-slate-700 hover:text-white transition-colors opacity-0 group-hover:opacity-100">
-                <ChevronDown size={20} />
-             </button>
+            <div>
+              <h4 className="text-lg font-black text-white">{v.name}</h4>
+              <p className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">Active Partner</p>
+            </div>
+            <button className="p-2 text-slate-700 hover:text-white transition-colors opacity-0 group-hover:opacity-100">
+              <ChevronDown size={20} />
+            </button>
           </div>
         ))}
       </div>

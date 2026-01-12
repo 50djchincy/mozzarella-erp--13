@@ -16,7 +16,7 @@ import {
   LogOut,
   Loader2
 } from 'lucide-react';
-import { ViewType, UserRole, User, Account, Customer } from './types';
+import { ViewType, UserRole, User, Account, Customer, DailyOpsConfig } from './types';
 import { AuthProvider, useAuth } from './components/AuthContext';
 import LoginPage from './components/LoginPage';
 import DashboardView from './components/DashboardView';
@@ -47,6 +47,16 @@ const AppContent: React.FC = () => {
     addOrUpdateItem: addOrUpdateCustomer
   } = useFirestoreSync<Customer>('customers', [], 'name', { enabled: !!user });
 
+  const {
+    data: settings,
+    addOrUpdateItem: addOrUpdateSetting
+  } = useFirestoreSync<any>('settings', [], undefined, { enabled: !!user });
+
+  // Ledger Sync
+  const {
+    addOrUpdateItem: addLedgerEntry
+  } = useFirestoreSync<any>('ledger', [], undefined, { enabled: !!user });
+
   // Multi-state loading check
   const loading = authLoading || accountsLoading || customersLoading;
 
@@ -76,11 +86,24 @@ const AppContent: React.FC = () => {
     { id: 'settings', label: 'Settings', icon: SettingsIcon },
   ];
 
+  const dailyOpsConfig = settings.find(s => s.id === 'dailyOps') as DailyOpsConfig;
+
   const renderContent = () => {
     switch (activeView) {
-      case 'dashboard': return <DashboardView />;
-      case 'money-lab': return <MoneyLabView role={user.role} accounts={accounts} setAccounts={() => { }} />;
-      case 'daily-ops': return <DailyOpsView role={user.role} accounts={accounts} customers={customers} />;
+      case 'dashboard': return <DashboardView accounts={accounts} />;
+      case 'money-lab': return <MoneyLabView role={user.role} accounts={accounts} onSaveAccount={addOrUpdateAccount} />;
+      case 'daily-ops':
+        return (
+          <DailyOpsView
+            role={user.role}
+            accounts={accounts}
+            customers={customers}
+            config={dailyOpsConfig}
+            onSaveConfig={(cfg) => addOrUpdateSetting({ ...cfg, id: 'dailyOps' })}
+            onSaveAccount={addOrUpdateAccount}
+            onAddLedgerEntry={addLedgerEntry}
+          />
+        );
       case 'staff-hub': return <StaffHubView role={user.role} accounts={accounts} />;
       case 'expenses': return <ExpensesView role={user.role} accounts={accounts} currentUser={{ name: user.name }} />;
       case 'settlement': return <SettlementView role={user.role} accounts={accounts} customers={customers} />;

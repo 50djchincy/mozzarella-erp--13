@@ -1,13 +1,13 @@
 
 import React, { useState, useMemo } from 'react';
-import { 
-  Plus, 
-  Search, 
-  ChevronLeft, 
-  ChevronRight, 
-  Wallet, 
-  CreditCard, 
-  Calendar as CalendarIcon, 
+import {
+  Plus,
+  Search,
+  ChevronLeft,
+  ChevronRight,
+  Wallet,
+  CreditCard,
+  Calendar as CalendarIcon,
   UserCircle,
   X,
   Lock,
@@ -29,22 +29,16 @@ interface Props {
 const StaffHubView: React.FC<Props> = ({ role, accounts }) => {
   const isAdmin = role === UserRole.ADMIN;
   const [activeTab, setActiveTab] = useState<'directory' | 'attendance' | 'payroll'>('directory');
-  
-  // Staff State
-  const [employees, setEmployees] = useState<Employee[]>([
-    { id: '1', name: 'Chirantha', position: 'Chef', basicSalary: 5500000, loanBalance: 25870000, advances: 0, leaves: 0, color: '#A78BFA' },
-    { id: '2', name: 'Dilshan', position: 'Manager', basicSalary: 8500000, loanBalance: 54921500, advances: 0, leaves: 0, color: '#F87171' },
-    { id: '3', name: 'Sekara', position: 'Waiter', basicSalary: 4000000, loanBalance: 16350000, advances: 0, leaves: 0, color: '#EF4444' },
-    { id: '4', name: 'Priyanthe', position: 'Waiter', basicSalary: 3500000, loanBalance: 0, advances: 0, leaves: 0, color: '#FBBF24' },
-    { id: '5', name: 'Thangayya', position: 'Kitchen Staff', basicSalary: 3500000, loanBalance: 23300000, advances: 0, leaves: 4, color: '#34D399' },
-  ]);
 
-  const [selectedStaffId, setSelectedStaffId] = useState<string | null>('1');
-  const [attendanceRecords, setAttendanceRecords] = useState<{empId: string, date: string}[]>([]);
+  // Staff State
+  const [employees, setEmployees] = useState<Employee[]>([]);
+
+  const [selectedStaffId, setSelectedStaffId] = useState<string | null>(null);
+  const [attendanceRecords, setAttendanceRecords] = useState<{ empId: string, date: string }[]>([]);
 
   // Modals
   const [isAddStaffModalOpen, setIsAddStaffModalOpen] = useState(false);
-  const [payrollAction, setPayrollAction] = useState<{type: 'salary' | 'advance' | 'loan' | 'sc', emp: Employee} | null>(null);
+  const [payrollAction, setPayrollAction] = useState<{ type: 'salary' | 'advance' | 'loan' | 'sc', emp: Employee } | null>(null);
 
   // New Staff Wizard State
   const [newStaff, setNewStaff] = useState({ name: '', role: '', salary: '', initialLoan: '' });
@@ -110,7 +104,7 @@ const StaffHubView: React.FC<Props> = ({ role, accounts }) => {
           <span className="text-[10px] font-black uppercase tracking-widest text-slate-400">Cycle: {currentCycleRange}</span>
         </div>
         {isAdmin && (
-          <button 
+          <button
             onClick={() => setIsAddStaffModalOpen(true)}
             className="flex items-center gap-2 bg-indigo-600 hover:bg-indigo-500 text-white px-6 py-3 rounded-2xl font-black text-xs uppercase tracking-widest shadow-lg shadow-indigo-500/20 transition-all"
           >
@@ -160,15 +154,14 @@ const StaffHubView: React.FC<Props> = ({ role, accounts }) => {
           <h3 className="text-xl font-black text-white">Roster</h3>
         </div>
         <p className="text-xs font-bold text-slate-400 leading-relaxed">Select a staff member to toggle holidays on the cycle calendar.</p>
-        
+
         <div className="space-y-2">
           {employees.map(emp => (
             <button
               key={emp.id}
               onClick={() => setSelectedStaffId(emp.id)}
-              className={`w-full flex items-center gap-4 p-4 rounded-2xl transition-all border ${
-                selectedStaffId === emp.id ? 'bg-indigo-600/10 border-indigo-500/30' : 'bg-slate-900/30 border-transparent hover:bg-slate-800'
-              }`}
+              className={`w-full flex items-center gap-4 p-4 rounded-2xl transition-all border ${selectedStaffId === emp.id ? 'bg-indigo-600/10 border-indigo-500/30' : 'bg-slate-900/30 border-transparent hover:bg-slate-800'
+                }`}
             >
               <div className="w-10 h-10 rounded-xl flex items-center justify-center text-white text-xs font-black" style={{ backgroundColor: emp.color }}>
                 {emp.name[0]}
@@ -214,20 +207,19 @@ const StaffHubView: React.FC<Props> = ({ role, accounts }) => {
             const dayNum = new Date(date).getDate();
             const dayStaffRecords = attendanceRecords.filter(r => r.date === date);
             const isSelectedStaffOff = dayStaffRecords.some(r => r.empId === selectedStaffId);
-            
+
             return (
-              <div 
-                key={idx} 
+              <div
+                key={idx}
                 onClick={() => toggleHoliday(date)}
-                className={`relative h-24 rounded-3xl border transition-all hover:border-indigo-500/50 group flex flex-col items-center justify-center gap-2 ${
-                  isSelectedStaffOff ? 'bg-indigo-600/10 border-indigo-500/30 shadow-inner' : 'bg-slate-900/30 border-slate-800/50'
-                }`}
+                className={`relative h-24 rounded-3xl border transition-all hover:border-indigo-500/50 group flex flex-col items-center justify-center gap-2 ${isSelectedStaffOff ? 'bg-indigo-600/10 border-indigo-500/30 shadow-inner' : 'bg-slate-900/30 border-slate-800/50'
+                  }`}
               >
                 <span className={`text-xs font-black ${isSelectedStaffOff ? 'text-indigo-400' : 'text-slate-500'}`}>{dayNum}</span>
                 <div className="flex flex-wrap gap-1 justify-center px-1">
                   {dayStaffRecords.map(r => (
-                    <div 
-                      key={r.empId} 
+                    <div
+                      key={r.empId}
                       className="w-4 h-4 rounded-full flex items-center justify-center text-[8px] text-white font-black"
                       style={{ backgroundColor: employees.find(e => e.id === r.empId)?.color }}
                     >
@@ -267,25 +259,25 @@ const StaffHubView: React.FC<Props> = ({ role, accounts }) => {
               </div>
 
               <div className="flex flex-wrap gap-2 justify-center">
-                <button 
+                <button
                   onClick={() => setPayrollAction({ type: 'advance', emp })}
                   className="px-4 py-2.5 bg-amber-600/10 text-amber-400 rounded-xl text-[10px] font-black uppercase tracking-widest border border-amber-500/20 hover:bg-amber-600/20 transition-all flex items-center gap-2"
                 >
                   <Plus size={14} /> Advance
                 </button>
-                <button 
+                <button
                   onClick={() => setPayrollAction({ type: 'loan', emp })}
                   className="px-4 py-2.5 bg-rose-600/10 text-rose-400 rounded-xl text-[10px] font-black uppercase tracking-widest border border-rose-500/20 hover:bg-rose-600/20 transition-all flex items-center gap-2"
                 >
                   <Landmark size={14} /> Loan
                 </button>
-                <button 
+                <button
                   onClick={() => setPayrollAction({ type: 'salary', emp })}
                   className="px-6 py-2.5 bg-indigo-600 text-white rounded-xl text-[10px] font-black uppercase tracking-widest shadow-lg shadow-indigo-500/20 hover:bg-indigo-500 transition-all"
                 >
                   Pay Salary
                 </button>
-                <button 
+                <button
                   onClick={() => setPayrollAction({ type: 'sc', emp })}
                   className="px-6 py-2.5 bg-blue-600 text-white rounded-xl text-[10px] font-black uppercase tracking-widest shadow-lg shadow-blue-500/20 hover:bg-blue-500 transition-all"
                 >
@@ -338,15 +330,15 @@ const StaffHubView: React.FC<Props> = ({ role, accounts }) => {
           <p className="text-sm font-bold text-slate-500">Employee directory, attendance & payroll lifecycle.</p>
         </div>
         <div className="flex gap-2 p-1.5 glass rounded-2xl self-stretch md:self-auto">
-          <button 
+          <button
             onClick={() => setActiveTab('directory')}
             className={`flex-1 md:flex-none px-6 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${activeTab === 'directory' ? 'bg-indigo-600 text-white' : 'text-slate-400 hover:text-slate-200'}`}
           >Directory</button>
-          <button 
+          <button
             onClick={() => setActiveTab('attendance')}
             className={`flex-1 md:flex-none px-6 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${activeTab === 'attendance' ? 'bg-indigo-600 text-white' : 'text-slate-400 hover:text-slate-200'}`}
           >Attendance</button>
-          <button 
+          <button
             onClick={() => setActiveTab('payroll')}
             className={`flex-1 md:flex-none px-6 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${activeTab === 'payroll' ? 'bg-indigo-600 text-white' : 'text-slate-400 hover:text-slate-200'}`}
           >Payroll</button>
@@ -370,47 +362,47 @@ const StaffHubView: React.FC<Props> = ({ role, accounts }) => {
             <div className="p-10 pt-4 space-y-6">
               <div className="space-y-2">
                 <label className="text-[10px] font-black uppercase tracking-widest text-slate-500 px-2">Full Name</label>
-                <input 
-                  type="text" 
+                <input
+                  type="text"
                   value={newStaff.name}
-                  onChange={e => setNewStaff({...newStaff, name: e.target.value})}
-                  placeholder="e.g. John Doe" 
-                  className="w-full bg-slate-950 border border-slate-800 rounded-[1.5rem] px-6 py-4 font-black text-white outline-none focus:ring-2 focus:ring-indigo-500" 
+                  onChange={e => setNewStaff({ ...newStaff, name: e.target.value })}
+                  placeholder="e.g. John Doe"
+                  className="w-full bg-slate-950 border border-slate-800 rounded-[1.5rem] px-6 py-4 font-black text-white outline-none focus:ring-2 focus:ring-indigo-500"
                 />
               </div>
               <div className="space-y-2">
                 <label className="text-[10px] font-black uppercase tracking-widest text-slate-500 px-2">Job Role</label>
-                <input 
-                  type="text" 
+                <input
+                  type="text"
                   value={newStaff.role}
-                  onChange={e => setNewStaff({...newStaff, role: e.target.value})}
-                  placeholder="e.g. Head Chef" 
-                  className="w-full bg-slate-950 border border-slate-800 rounded-[1.5rem] px-6 py-4 font-black text-white outline-none focus:ring-2 focus:ring-indigo-500" 
+                  onChange={e => setNewStaff({ ...newStaff, role: e.target.value })}
+                  placeholder="e.g. Head Chef"
+                  className="w-full bg-slate-950 border border-slate-800 rounded-[1.5rem] px-6 py-4 font-black text-white outline-none focus:ring-2 focus:ring-indigo-500"
                 />
               </div>
               <div className="grid grid-cols-2 gap-4">
                 <div className="space-y-2">
                   <label className="text-[10px] font-black uppercase tracking-widest text-slate-500 px-2">Basic Salary</label>
-                  <input 
-                    type="number" 
+                  <input
+                    type="number"
                     value={newStaff.salary}
-                    onChange={e => setNewStaff({...newStaff, salary: e.target.value})}
-                    placeholder="55000" 
-                    className="w-full bg-slate-950 border border-slate-800 rounded-[1.5rem] px-6 py-4 font-black text-white outline-none focus:ring-2 focus:ring-indigo-500" 
+                    onChange={e => setNewStaff({ ...newStaff, salary: e.target.value })}
+                    placeholder="55000"
+                    className="w-full bg-slate-950 border border-slate-800 rounded-[1.5rem] px-6 py-4 font-black text-white outline-none focus:ring-2 focus:ring-indigo-500"
                   />
                 </div>
                 <div className="space-y-2">
                   <label className="text-[10px] font-black uppercase tracking-widest text-slate-500 px-2">Initial Loan</label>
-                  <input 
-                    type="number" 
+                  <input
+                    type="number"
                     value={newStaff.initialLoan}
-                    onChange={e => setNewStaff({...newStaff, initialLoan: e.target.value})}
-                    placeholder="0" 
-                    className="w-full bg-slate-950 border border-slate-800 rounded-[1.5rem] px-6 py-4 font-black text-white outline-none focus:ring-2 focus:ring-indigo-500" 
+                    onChange={e => setNewStaff({ ...newStaff, initialLoan: e.target.value })}
+                    placeholder="0"
+                    className="w-full bg-slate-950 border border-slate-800 rounded-[1.5rem] px-6 py-4 font-black text-white outline-none focus:ring-2 focus:ring-indigo-500"
                   />
                 </div>
               </div>
-              <button 
+              <button
                 onClick={handleAddStaff}
                 className="w-full bg-indigo-600 hover:bg-indigo-500 text-white font-black py-5 rounded-[1.5rem] shadow-xl shadow-indigo-500/20 transition-all text-sm uppercase tracking-widest flex items-center justify-center gap-3"
               >
@@ -431,9 +423,9 @@ const StaffHubView: React.FC<Props> = ({ role, accounts }) => {
                 <button onClick={() => setPayrollAction(null)} className="p-2 text-slate-500 hover:text-white transition-colors"><X size={24} /></button>
               </div>
               <h3 className="text-3xl font-black text-white capitalize">
-                {payrollAction.type === 'sc' ? 'Pay Service Charge' : 
-                 payrollAction.type === 'salary' ? 'Monthly Payout' : 
-                 payrollAction.type === 'advance' ? 'Issue Advance' : 'Issue Loan'}
+                {payrollAction.type === 'sc' ? 'Pay Service Charge' :
+                  payrollAction.type === 'salary' ? 'Monthly Payout' :
+                    payrollAction.type === 'advance' ? 'Issue Advance' : 'Issue Loan'}
               </h3>
               <p className="text-sm font-bold text-slate-400 mt-2">Processing for <span className="text-white">{payrollAction.emp.name}</span></p>
             </div>
@@ -448,17 +440,17 @@ const StaffHubView: React.FC<Props> = ({ role, accounts }) => {
 
               <div className="space-y-2">
                 <label className="text-[10px] font-black uppercase tracking-widest text-slate-500 px-2">
-                  {payrollAction.type === 'salary' ? 'Final Payment Amount' : 
-                   payrollAction.type === 'sc' ? 'SC Entitlement % / Amount' : 'Amount to Issue'}
+                  {payrollAction.type === 'salary' ? 'Final Payment Amount' :
+                    payrollAction.type === 'sc' ? 'SC Entitlement % / Amount' : 'Amount to Issue'}
                 </label>
                 <div className="relative">
-                   <span className="absolute left-6 top-1/2 -translate-y-1/2 text-slate-500 font-bold">$</span>
-                   <input 
-                    type="number" 
+                  <span className="absolute left-6 top-1/2 -translate-y-1/2 text-slate-500 font-bold">$</span>
+                  <input
+                    type="number"
                     placeholder="0.00"
                     value={payrollFormData.amount}
-                    onChange={e => setPayrollFormData({...payrollFormData, amount: e.target.value})}
-                    className="w-full bg-slate-950 border border-slate-800 rounded-[1.5rem] pl-10 pr-6 py-4 font-black text-2xl text-white outline-none focus:ring-2 focus:ring-indigo-500" 
+                    onChange={e => setPayrollFormData({ ...payrollFormData, amount: e.target.value })}
+                    className="w-full bg-slate-950 border border-slate-800 rounded-[1.5rem] pl-10 pr-6 py-4 font-black text-2xl text-white outline-none focus:ring-2 focus:ring-indigo-500"
                   />
                 </div>
               </div>
@@ -468,12 +460,12 @@ const StaffHubView: React.FC<Props> = ({ role, accounts }) => {
                   <label className="text-[10px] font-black uppercase tracking-widest text-slate-500 px-2">Loan Repayment (Manual Deduction)</label>
                   <div className="relative">
                     <span className="absolute left-6 top-1/2 -translate-y-1/2 text-slate-500 font-bold">$</span>
-                    <input 
-                      type="number" 
+                    <input
+                      type="number"
                       placeholder="Amount to deduct"
                       value={payrollFormData.loanRepay}
-                      onChange={e => setPayrollFormData({...payrollFormData, loanRepay: e.target.value})}
-                      className="w-full bg-slate-950 border border-slate-800 rounded-[1.5rem] pl-10 pr-6 py-4 font-black text-white outline-none focus:ring-2 focus:ring-indigo-500" 
+                      onChange={e => setPayrollFormData({ ...payrollFormData, loanRepay: e.target.value })}
+                      className="w-full bg-slate-950 border border-slate-800 rounded-[1.5rem] pl-10 pr-6 py-4 font-black text-white outline-none focus:ring-2 focus:ring-indigo-500"
                     />
                   </div>
                   {payrollAction.emp.loanBalance > 0 && (
@@ -484,9 +476,9 @@ const StaffHubView: React.FC<Props> = ({ role, accounts }) => {
 
               <div className="space-y-2">
                 <label className="text-[10px] font-black uppercase tracking-widest text-slate-500 px-2">Source of Funds</label>
-                <select 
+                <select
                   value={payrollFormData.sourceAccount}
-                  onChange={e => setPayrollFormData({...payrollFormData, sourceAccount: e.target.value})}
+                  onChange={e => setPayrollFormData({ ...payrollFormData, sourceAccount: e.target.value })}
                   className="w-full bg-slate-950 border border-slate-800 rounded-[1.5rem] px-6 py-4 font-black text-white outline-none focus:ring-2 focus:ring-indigo-500"
                 >
                   {accounts.map(acc => (
@@ -504,7 +496,7 @@ const StaffHubView: React.FC<Props> = ({ role, accounts }) => {
                 </div>
               )}
 
-              <button 
+              <button
                 onClick={handlePayrollSubmit}
                 className="w-full bg-white text-slate-950 hover:bg-slate-100 font-black py-5 rounded-[1.5rem] shadow-xl shadow-white/5 transition-all text-sm uppercase tracking-widest flex items-center justify-center gap-3"
               >
