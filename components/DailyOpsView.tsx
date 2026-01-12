@@ -19,8 +19,10 @@ import {
   AlertTriangle,
   Zap
 } from 'lucide-react';
+import ExpenseEntryForm from './ExpenseEntryForm';
+import QuickExpenses from './QuickExpenses';
 // Fixed: Removed non-existent DailyOpsSession from imports
-import { UserRole, Account, Customer, AccountType, DailyOpsConfig } from '../types';
+import { UserRole, Account, Customer, AccountType, DailyOpsConfig, ExpenseCategory, Vendor, ExpenseTemplate, ExpenseTransaction } from '../types';
 import { formatCurrency, toCents } from '../utils';
 
 interface Props {
@@ -28,13 +30,38 @@ interface Props {
   accounts: Account[];
   customers: Customer[];
   config?: DailyOpsConfig;
+  currentUser?: { name: string; id: string };
+  categories?: ExpenseCategory[];
+  vendors?: Vendor[];
+  templates?: ExpenseTemplate[];
   onSaveConfig?: (config: DailyOpsConfig) => Promise<void>;
   onSaveAccount?: (account: Account) => Promise<void>;
   onSaveCustomer?: (customer: Customer) => Promise<void>;
   onAddLedgerEntry?: (entry: any) => Promise<void>;
+  onSaveExpense?: (expense: ExpenseTransaction) => Promise<void>;
+  onSaveCategory?: (category: ExpenseCategory) => Promise<void>;
+  onSaveVendor?: (vendor: Vendor) => Promise<void>;
+  onSaveTemplate?: (template: ExpenseTemplate) => Promise<void>;
 }
 
-const DailyOpsView: React.FC<Props> = ({ role, accounts, customers, config: remoteConfig, onSaveConfig, onSaveAccount, onSaveCustomer, onAddLedgerEntry }) => {
+const DailyOpsView: React.FC<Props> = ({
+  role,
+  accounts,
+  customers,
+  config: remoteConfig,
+  currentUser,
+  categories = [],
+  vendors = [],
+  templates = [],
+  onSaveConfig,
+  onSaveAccount,
+  onSaveCustomer,
+  onAddLedgerEntry,
+  onSaveExpense,
+  onSaveCategory,
+  onSaveVendor,
+  onSaveTemplate
+}) => {
   const [activeTab, setActiveTab] = useState<'wizard' | 'history' | 'editor'>('wizard');
   const [step, setStep] = useState(1);
   const isAdmin = role === UserRole.ADMIN;
@@ -76,7 +103,10 @@ const DailyOpsView: React.FC<Props> = ({ role, accounts, customers, config: remo
   const [partnerSales, setPartnerSales] = useState(0);
   const [foreignCurrency, setForeignCurrency] = useState(0);
   const [fcNote, setFcNote] = useState('');
-  const [expensesTotal, setExpensesTotal] = useState(0);
+  const [showCustomExpense, setShowCustomExpense] = useState(false);
+  const [selectedTemplate, setSelectedTemplate] = useState<ExpenseTemplate | undefined>(undefined);
+  // Track expenses added this session for display
+  const [sessionExpenses, setSessionExpenses] = useState<ExpenseTransaction[]>([]);
 
   const [customerCredits, setCustomerCredits] = useState<{ custId: string, amount: number }[]>([]);
 
@@ -91,6 +121,14 @@ const DailyOpsView: React.FC<Props> = ({ role, accounts, customers, config: remo
 
   const totalCustomerCredit = useMemo(() => customerCredits.reduce((acc, c) => acc + c.amount, 0), [customerCredits]);
 
+  const handleSaveExpense = async (expense: ExpenseTransaction) => {
+    if (onSaveExpense) {
+      await onSaveExpense(expense);
+      setSessionExpenses(prev => [...prev, expense]);
+    }
+  };
+  const sessionExpensesTotal = sessionExpenses.reduce((acc, curr) => acc + curr.amount, 0);
+
   const handleCloseShift = async () => {
     if (!config || !onSaveAccount || !onAddLedgerEntry) {
       alert("Configuration or save handlers missing. Please contact admin.");
@@ -98,17 +136,25 @@ const DailyOpsView: React.FC<Props> = ({ role, accounts, customers, config: remo
     }
 
     // 1. Calculate Totals
+    // Since expenses are now real-time, accounts.find(current) already reflects the deducted amount.
+    // So Theoretical Cash = Current Balance + Cash Sales (not yet posted) + Money Added.
+    // Note: This assumes Total Sales entered in wizard have NOT yet been posted to the account.
+
+
     // These variables (grossSales, physicalCount, expenses) are not defined in the current scope.
     // Assuming they should come from the state variables already defined:
     // totalSales, physicalTotal (from counts), expensesTotal
     const grossSales = totalSales;
     const physicalCount = physicalTotal;
-    const expenses = expensesTotal;
+    // Expenses are tracked in real-time now, so we don't pass a manual total for the shift summary unless we want to sum up what was added during this session.
+    // For the closure report, we might want to know "Expenses Paid: $X".
+    // but the balance check relies on the Account Balance.
+    const expenses = 0; // Placeholder, or we can calculate from local tracking if needed.
 
     const totalSalesCents = grossSales;
     const cardTotal = cardPayments;
     const partnerTotal = partnerSales;
-    const expensesTotalCents = expenses;
+    const expensesTotalCents = 0;
     const physicalTotalCents = physicalCount;
     const creditTotal = totalCustomerCredit;
 
@@ -231,9 +277,10 @@ const DailyOpsView: React.FC<Props> = ({ role, accounts, customers, config: remo
     }
   };
   const targetRegisterBalance = useMemo(() => {
-    // Formula: (Petty cash balance + money added + Total Sales) - (card payments + Partner sales + Customer Credit + Foreign currency + expenses)
-    return (openingBalance + moneyAdded + totalSales) - (cardPayments + partnerSales + totalCustomerCredit + foreignCurrency + expensesTotal);
-  }, [openingBalance, moneyAdded, totalSales, cardPayments, partnerSales, totalCustomerCredit, foreignCurrency, expensesTotal]);
+    // Formula: (Petty cash balance + money added + Total Sales) - (card payments + Partner sales + Customer Credit + Foreign currency)
+    // Expenses are real-time, so openingBalance reflects them.
+    return (openingBalance + moneyAdded + totalSales) - (cardPayments + partnerSales + totalCustomerCredit + foreignCurrency);
+  }, [openingBalance, moneyAdded, totalSales, cardPayments, partnerSales, totalCustomerCredit, foreignCurrency]);
 
   // Fixed: Explicitly cast Object.entries to resolve 'unknown' type errors during arithmetic operations
   const physicalTotal = useMemo(() => {
@@ -353,23 +400,65 @@ const DailyOpsView: React.FC<Props> = ({ role, accounts, customers, config: remo
 
           {/* Step 2: Expenses */}
           {step === 3 && (
-            <div className="space-y-8">
-              <div className="text-center">
-                <h3 className="text-3xl font-black">Daily Expenses</h3>
-                <p className="text-slate-500 mt-2">Enter any expenses paid from the till today.</p>
-              </div>
-              <div className="space-y-4">
-                <div className="relative">
-                  <span className="absolute left-6 top-1/2 -translate-y-1/2 text-slate-500 font-black text-2xl">$</span>
-                  <input
-                    type="number"
-                    placeholder="Enter total expenses"
-                    onChange={e => setExpensesTotal(toCents(e.target.value))}
-                    className="w-full bg-slate-900 border border-slate-800 rounded-3xl pl-12 pr-8 py-10 text-4xl font-black focus:ring-2 focus:ring-indigo-500 outline-none"
+            <div className="space-y-8 animate-in fade-in duration-500">
+              {showCustomExpense ? (
+                <ExpenseEntryForm
+                  role={role}
+                  accounts={accounts}
+                  currentUser={currentUser!}
+                  categories={categories || []}
+                  vendors={vendors || []}
+                  onSaveExpense={handleSaveExpense}
+                  onSaveCategory={onSaveCategory!}
+                  onSaveVendor={onSaveVendor!}
+                  onSaveAccount={onSaveAccount!}
+                  onAddLedgerEntry={onAddLedgerEntry!}
+                  onSaveTemplate={onSaveTemplate!}
+                  lockSourceAccountId={pettyCashAccount?.id}
+                  initialData={selectedTemplate ? {
+                    amount: (selectedTemplate.amount / 100).toString(),
+                    mainCategoryId: categories?.find(c => c.name === selectedTemplate.mainCategory)?.id || 'ops',
+                    subcategory: selectedTemplate.subcategory,
+                    vendorId: selectedTemplate.vendorId,
+                    sourceAccountId: selectedTemplate.sourceAccountId,
+                    receivesStock: selectedTemplate.receivesStock,
+                    details: selectedTemplate.details
+                  } : undefined}
+                  onCancel={() => { setShowCustomExpense(false); setSelectedTemplate(undefined); }}
+                  onSuccess={() => { setShowCustomExpense(false); setSelectedTemplate(undefined); }}
+                />
+              ) : (
+                <>
+                  <div className="text-center mb-8">
+                    <h3 className="text-3xl font-black text-white">Quick Expenses</h3>
+                    <p className="text-slate-500 mt-2 font-medium">Select a recurring expense or add a custom one.</p>
+                  </div>
+
+                  <QuickExpenses
+                    templates={templates || []}
+                    onApply={(tmp) => { setSelectedTemplate(tmp); setShowCustomExpense(true); }}
                   />
+
+                  <div className="flex justify-center mt-8">
+                    <button
+                      onClick={() => setShowCustomExpense(true)}
+                      className="flex items-center gap-3 px-8 py-4 bg-slate-800 hover:bg-slate-700 text-white rounded-2xl font-black uppercase tracking-widest transition-all shadow-lg"
+                    >
+                      <Plus size={20} /> Add Custom Expense
+                    </button>
+                  </div>
+                </>
+              )}
+
+              {sessionExpenses.length > 0 && !showCustomExpense && (
+                <div className="bg-slate-900/50 p-6 rounded-3xl border border-slate-800 flex justify-between items-center animate-in slide-in-from-bottom-2">
+                  <div>
+                    <p className="text-xs font-black uppercase text-slate-500 tracking-widest">Session Expenses</p>
+                    <p className="text-slate-400 text-xs mt-1">{sessionExpenses.length} items added just now</p>
+                  </div>
+                  <p className="text-2xl font-black text-white">{formatCurrency(sessionExpensesTotal)}</p>
                 </div>
-                <p className="text-center text-slate-500 text-sm font-bold italic">This will be deducted from your final cash count.</p>
-              </div>
+              )}
             </div>
           )}
 
@@ -477,6 +566,48 @@ const DailyOpsView: React.FC<Props> = ({ role, accounts, customers, config: remo
                     <div className="flex justify-between items-center mb-4">
                       <span className="text-xs font-black uppercase text-slate-500 tracking-widest">Expected Balance (Formula)</span>
                       <span className="text-lg font-black text-white">{formatCurrency(targetRegisterBalance)}</span>
+                    </div>
+
+                    {/* Math Breakdown */}
+                    <div className="mb-8 p-4 bg-slate-800/50 rounded-xl border border-dashed border-slate-700 space-y-2 text-[10px] text-slate-400 font-medium">
+                      <div className="flex justify-between">
+                        <span>Opening Balance (Live):</span>
+                        <span>{formatCurrency(openingBalance)}</span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span>+ Money Added:</span>
+                        <span>{formatCurrency(moneyAdded)}</span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span>+ Gross Sales:</span>
+                        <span>{formatCurrency(totalSales)}</span>
+                      </div>
+                      <div className="flex justify-between text-rose-400">
+                        <span>- Non-Cash Payments:</span>
+                        <span>({formatCurrency(cardPayments + partnerSales + totalCustomerCredit + foreignCurrency)})</span>
+                      </div>
+
+                      {/* Session Expenses Breakdown */}
+                      {sessionExpenses.length > 0 && (
+                        <div className="pt-2 mt-2 border-t border-slate-700/50 space-y-1">
+                          <p className="text-[9px] uppercase tracking-widest text-slate-500 mb-1">Expenses (Included in Opening)</p>
+                          {(Object.entries(sessionExpenses.reduce((acc, curr) => {
+                            const cat = curr.mainCategory || 'Uncategorized';
+                            acc[cat] = (acc[cat] || 0) + curr.amount;
+                            return acc;
+                          }, {} as Record<string, number>)) as [string, number][]).map(([cat, amt]) => (
+                            <div key={cat} className="flex justify-between text-slate-300">
+                              <span>- {cat}</span>
+                              <span>{formatCurrency(amt)}</span>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+
+                      <div className="border-t border-slate-600 pt-2 flex justify-between font-bold text-white">
+                        <span>= Target Cash:</span>
+                        <span>{formatCurrency(targetRegisterBalance)}</span>
+                      </div>
                     </div>
                     <div className="flex justify-between items-center mb-8 pb-8 border-b border-slate-800">
                       <span className="text-xs font-black uppercase text-slate-500 tracking-widest">Physical Count</span>

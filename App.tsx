@@ -121,10 +121,18 @@ const AppContent: React.FC = () => {
             accounts={accounts}
             customers={customers}
             config={dailyOpsConfig}
+            currentUser={{ name: user.name, id: user.id }}
+            categories={expenseCategories}
+            vendors={vendors}
+            templates={expenseTemplates}
             onSaveConfig={(cfg) => addOrUpdateSetting({ ...cfg, id: 'dailyOps' })}
             onSaveAccount={addOrUpdateAccount}
             onSaveCustomer={addOrUpdateCustomer}
             onAddLedgerEntry={addLedgerEntry}
+            onSaveExpense={addOrUpdateExpense}
+            onSaveCategory={addOrUpdateExpenseCategory}
+            onSaveVendor={addOrUpdateVendor}
+            onSaveTemplate={addOrUpdateExpenseTemplate}
           />
         );
       case 'staff-hub': return <StaffHubView role={user.role} accounts={accounts} />;
