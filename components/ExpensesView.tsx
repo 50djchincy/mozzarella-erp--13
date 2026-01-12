@@ -79,7 +79,7 @@ const ExpensesView: React.FC<Props> = ({
 
   const categories = useMemo(() => {
     const merged = [...defaultCategories];
-    remoteCategories.forEach(remoteCat => {
+    (remoteCategories || []).forEach(remoteCat => {
       const index = merged.findIndex(c => c.id === remoteCat.id);
       if (index > -1) {
         merged[index] = remoteCat;

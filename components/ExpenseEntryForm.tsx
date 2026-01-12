@@ -169,18 +169,22 @@ const ExpenseEntryForm: React.FC<Props> = ({
 
     const handleSaveTemplate = async () => {
         if (!onSaveTemplate) return;
+
         if (!formData.amount) {
             alert("Please enter an amount first.");
             return;
         }
-        const name = window.prompt("Enter a name for this template (e.g., Office Rent, Daily Milk):");
+
+        const inputName = window.prompt("Enter a name for this template (e.g., Office Rent, Daily Milk):");
+        const name = inputName?.trim();
         if (!name) return;
 
+        const mainCat = categories.find(c => c.id === formData.mainCategoryId);
         const template: ExpenseTemplate = {
             id: Math.random().toString(36).substr(2, 9),
             name,
             amount: toCents(formData.amount),
-            mainCategory: categories.find(c => c.id === formData.mainCategoryId)?.name || '',
+            mainCategory: mainCat?.name || 'Uncategorized',
             subcategory: formData.newSubcategory || formData.subcategory || '',
             vendorId: formData.vendorId || '',
             vendorName: vendors.find(v => v.id === formData.vendorId)?.name || formData.newVendorName || '',
@@ -191,7 +195,7 @@ const ExpenseEntryForm: React.FC<Props> = ({
 
         try {
             await onSaveTemplate(template);
-            alert("Template saved successfully!");
+            alert(`Template "${name}" saved successfully!`);
         } catch (error) {
             console.error("Error saving template:", error);
             alert(`Failed to save template: ${error instanceof Error ? error.message : 'Unknown error'}`);

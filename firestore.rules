@@ -46,8 +46,11 @@ service cloud.firestore {
     }
 
     // --- Transactions & Bills ---
+    // I separated 'ledger' from this list to secure it further down
     match /{collection}/{docId} {
       allow read: if isAuthenticated();
+      // Allow staff to create transactions (Sales/Expenses) but NOT edit them later?
+      // For safety, I set update to Manager. Adjust if staff need to edit.
       allow create: if isAuthenticated() && 
         collection in ['transactions', 'receivable_transactions', 'payable_bills', 'expense_transactions'];
       allow update: if isManager() && 
@@ -56,8 +59,9 @@ service cloud.firestore {
     }
 
     // --- THE LEDGER (CRITICAL SECURITY) ---
+    // Segregated: Never let standard staff write directly to the ledger
     match /ledger/{document=**} {
-      allow read: if isManager(); 
+      allow read: if isManager(); // Maybe staff don't even need to see the full ledger?
       allow write: if isManager();
     }
 
@@ -81,17 +85,19 @@ service cloud.firestore {
     // --- Attendance ---
     match /attendance/{document=**} {
       allow read: if isAuthenticated();
+      // Staff can CLOCK IN (create)
       allow create: if isAuthenticated();
+      // Only Managers can EDIT/DELETE (Fix mistakes)
       allow update, delete: if isManager();
     }
 
     // --- CRM (Customers & Vendors) ---
     match /customers/{document=**} {
-      allow read: if isAuthenticated();
+      allow read: if isAuthenticated(); // Needed for dropdowns
       allow write: if isManager();
     }
     match /vendors/{document=**} {
-      allow read: if isAuthenticated();
+      allow read: if isAuthenticated(); // Needed for dropdowns
       allow write: if isManager();
     }
 

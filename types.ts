@@ -58,6 +58,13 @@ export interface DailyOpsConfig {
   customerReceivableAccountId: string;
 }
 
+export interface SettlementConfig {
+  partnerSalesRecAccId: string;
+  settlementCardAccId: string;
+  autoFeeAccIds: string[];
+  partnerNameLabel: string; // e.g. "Hiking Bar"
+}
+
 export interface Vendor {
   id: string;
   name: string;

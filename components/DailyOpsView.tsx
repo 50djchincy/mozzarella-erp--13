@@ -22,7 +22,7 @@ import {
 import ExpenseEntryForm from './ExpenseEntryForm';
 import QuickExpenses from './QuickExpenses';
 // Fixed: Removed non-existent DailyOpsSession from imports
-import { UserRole, Account, Customer, AccountType, DailyOpsConfig, ExpenseCategory, Vendor, ExpenseTemplate, ExpenseTransaction, DailyOpsSession } from '../types';
+import { UserRole, Account, AccountType, Customer, DailyOpsConfig, ExpenseTransaction, ExpenseCategory, Vendor, ExpenseTemplate, DailyOpsSession, ReceivableTransaction } from '../types';
 import { formatCurrency, toCents } from '../utils';
 import { defaultCategories } from '../constants';
 
@@ -30,21 +30,22 @@ interface Props {
   role: UserRole;
   accounts: Account[];
   customers: Customer[];
-  config?: DailyOpsConfig;
-  currentUser?: { name: string; id: string };
-  categories?: ExpenseCategory[];
-  vendors?: Vendor[];
-  templates?: ExpenseTemplate[];
-  onSaveConfig?: (config: DailyOpsConfig) => Promise<void>;
-  onSaveAccount?: (account: Account) => Promise<void>;
-  onSaveCustomer?: (customer: Customer) => Promise<void>;
-  onAddLedgerEntry?: (entry: any) => Promise<void>;
-  onSaveExpense?: (expense: ExpenseTransaction) => Promise<void>;
-  onSaveCategory?: (category: ExpenseCategory) => Promise<void>;
-  onSaveVendor?: (vendor: Vendor) => Promise<void>;
-  onSaveTemplate?: (template: ExpenseTemplate) => Promise<void>;
-  sessions?: DailyOpsSession[];
-  onSaveSession?: (session: DailyOpsSession) => Promise<void>;
+  config: DailyOpsConfig;
+  currentUser: { name: string, id: string };
+  categories: ExpenseCategory[];
+  vendors: Vendor[];
+  templates: ExpenseTemplate[];
+  sessions: DailyOpsSession[];
+  onSaveConfig: (config: DailyOpsConfig) => Promise<void>;
+  onSaveAccount: (account: Account) => Promise<void>;
+  onSaveCustomer: (customer: Customer) => Promise<void>;
+  onAddLedgerEntry: (entry: any) => Promise<void>;
+  onSaveExpense: (expense: ExpenseTransaction) => Promise<void>;
+  onSaveCategory: (category: ExpenseCategory) => Promise<void>;
+  onSaveVendor: (vendor: Vendor) => Promise<void>;
+  onSaveTemplate: (template: ExpenseTemplate) => Promise<void>;
+  onSaveSession: (session: DailyOpsSession) => Promise<void>;
+  onAddReceivable?: (tx: ReceivableTransaction) => Promise<void>;
 }
 
 const DailyOpsView: React.FC<Props> = ({
@@ -65,7 +66,8 @@ const DailyOpsView: React.FC<Props> = ({
   onSaveCategory,
   onSaveVendor,
   onSaveTemplate,
-  onSaveSession
+  onSaveSession,
+  onAddReceivable
 }) => {
   const [activeTab, setActiveTab] = useState<'wizard' | 'history' | 'editor'>('wizard');
   const [step, setStep] = useState(1);
@@ -217,6 +219,11 @@ const DailyOpsView: React.FC<Props> = ({
       return;
     }
 
+    if (creditTotal > 0 && !customerRecAcc) {
+      alert("You have entered Customer Credits but haven't configured a 'Customer Credit Asset' in the Daily Ops Editor. Please configure it first.");
+      return;
+    }
+
     try {
       // 3. Update Income Account (Credit Sales)
       await onSaveAccount({ ...incomeAcc, currentBalance: incomeAcc.currentBalance + totalSalesCents });
@@ -224,9 +231,39 @@ const DailyOpsView: React.FC<Props> = ({
       // 4. Update Asset Accounts (Receivables)
       if (cardAcc && cardTotal > 0) {
         await onSaveAccount({ ...cardAcc, currentBalance: cardAcc.currentBalance + cardTotal });
+
+        // Record Receivable Transaction for Settlement
+        if (onAddReceivable) {
+          // alert(`DEBUG: Saving Card Tx ${formatCurrency(cardTotal)}`);
+          await onAddReceivable({
+            id: crypto.randomUUID(),
+            date: new Date().toISOString().split('T')[0],
+            source: 'Visa/Master',
+            amount: cardTotal,
+            status: 'Pending',
+            accountId: cardAcc.id
+          });
+        } else {
+          alert('CRITICAL ERROR: onAddReceivable is MISSING. Transaction will NOT be saved.');
+        }
       }
       if (partnerAcc && partnerTotal > 0) {
         await onSaveAccount({ ...partnerAcc, currentBalance: partnerAcc.currentBalance + partnerTotal });
+
+        // Record Receivable Transaction for Settlement
+        if (onAddReceivable) {
+          // alert(`DEBUG: Saving Partner Tx ${formatCurrency(partnerTotal)}`);
+          await onAddReceivable({
+            id: crypto.randomUUID(),
+            date: new Date().toISOString().split('T')[0],
+            source: 'Uber/Deliveroo',
+            amount: partnerTotal,
+            status: 'Pending',
+            accountId: partnerAcc.id
+          });
+        } else {
+          alert('CRITICAL ERROR: onAddReceivable is MISSING. Partner Transaction will NOT be saved.');
+        }
       }
       if (customerRecAcc && creditTotal > 0) {
         await onSaveAccount({ ...customerRecAcc, currentBalance: customerRecAcc.currentBalance + creditTotal });
@@ -741,7 +778,7 @@ const DailyOpsView: React.FC<Props> = ({
               </button>
             )}
             <button
-              onClick={() => step === 5 ? setIsShiftOpen(false) : setStep(step + 1)}
+              onClick={() => step === 5 ? handleCloseShift() : setStep(step + 1)}
               className="flex-[2] bg-indigo-600 hover:bg-indigo-500 text-white font-black py-5 rounded-3xl shadow-xl shadow-indigo-500/20 transition-all text-lg uppercase tracking-widest"
             >
               {step === 5 ? 'Close Shift & Post to Ledger' : 'Continue'}
@@ -865,6 +902,17 @@ const DailyOpsView: React.FC<Props> = ({
               onChange={e => setConfig({ ...config, foreignCurrencyAccountId: e.target.value })}
             >
               <option value="">Select Foreign Currency Asset</option>
+              {accounts.map(a => <option key={a.id} value={a.id}>{a.name} ({a.type})</option>)}
+            </select>
+          </div>
+          <div className="space-y-4">
+            <label className="text-[10px] font-black uppercase text-slate-500 tracking-widest px-2">Customer Credit Asset</label>
+            <select
+              className="w-full bg-slate-900 border border-slate-800 rounded-2xl px-6 py-4 font-bold"
+              value={config.customerReceivableAccountId}
+              onChange={e => setConfig({ ...config, customerReceivableAccountId: e.target.value })}
+            >
+              <option value="">Select Customer Credit Account</option>
               {accounts.map(a => <option key={a.id} value={a.id}>{a.name} ({a.type})</option>)}
             </select>
           </div>

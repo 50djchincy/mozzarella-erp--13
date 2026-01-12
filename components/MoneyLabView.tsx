@@ -19,8 +19,8 @@ import {
   Check,
   Lock
 } from 'lucide-react';
-import { AccountType, Account, UserRole } from '../types';
 import { formatCurrency, toCents } from '../utils';
+import { AccountType, Account, UserRole } from '../types';
 
 interface Props {
   role: UserRole;
@@ -284,8 +284,8 @@ const MoneyLabView: React.FC<Props> = ({ role, accounts, onSaveAccount }) => {
                       key={item.type}
                       onClick={() => setNewType(item.type)}
                       className={`flex items-center gap-3 p-4 rounded-2xl border-2 transition-all ${newType === item.type
-                          ? 'bg-indigo-600/10 border-indigo-500 text-indigo-400'
-                          : 'bg-slate-950 border-slate-800 text-slate-500 hover:bg-slate-800'
+                        ? 'bg-indigo-600/10 border-indigo-500 text-indigo-400'
+                        : 'bg-slate-950 border-slate-800 text-slate-500 hover:bg-slate-800'
                         }`}
                     >
                       <item.icon size={18} />

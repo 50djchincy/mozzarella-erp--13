@@ -40,11 +40,12 @@ export function useFirestoreSync<T extends { id: string }>(
                 snapshot.forEach((doc) => {
                     items.push({ id: doc.id, ...doc.data() } as T);
                 });
+                console.log(`FirestoreSync [${collectionName}]: Received ${items.length} items`);
                 setData(items);
                 setLoading(false);
             },
             (err) => {
-                console.error(`Error syncing ${collectionName}:`, err);
+                console.error(`FirestoreSync [${collectionName}]: Error syncing:`, err);
                 setError(err);
                 setLoading(false);
             }

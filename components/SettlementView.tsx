@@ -21,29 +21,75 @@ import {
   Percent,
   Lock
 } from 'lucide-react';
-import { UserRole, Account, Customer, Vendor, AccountType, ReceivableTransaction, PayableBill } from '../types';
+import { UserRole, Account, Customer, Vendor, AccountType, ReceivableTransaction, PayableBill, SettlementConfig } from '../types';
 import { formatCurrency, toCents } from '../utils';
 
 interface Props {
   role: UserRole;
   accounts: Account[];
   customers: Customer[];
+  config?: SettlementConfig;
+  onSaveConfig?: (config: SettlementConfig) => Promise<void>;
+  receivableTransactions?: ReceivableTransaction[];
+  onUpdateReceivable?: (tx: ReceivableTransaction) => Promise<void>;
+  onSaveAccount?: (account: Account) => Promise<void>;
+  onAddLedgerEntry?: (entry: any) => Promise<void>;
+  onSaveCustomer?: (customer: Customer) => Promise<void>;
 }
 
-const SettlementView: React.FC<Props> = ({ role, accounts, customers }) => {
+const SettlementView: React.FC<Props> = ({
+  role,
+  accounts,
+  customers,
+  config,
+  onSaveConfig,
+  receivableTransactions = [],
+  onUpdateReceivable,
+  onSaveAccount,
+  onAddLedgerEntry,
+  onSaveCustomer
+}) => {
   const isAdmin = role === UserRole.ADMIN;
   const [activeTab, setActiveTab] = useState<'partners' | 'cards' | 'customers' | 'payables' | 'bank' | 'editor'>('partners');
 
-  // Mock Data
-  // Mock Data
-  const [receivableTxs, setReceivableTxs] = useState<ReceivableTransaction[]>([]);
+  // Use props for data
+  const pendingPartnerTxs = useMemo(() => receivableTransactions.filter(tx =>
+    tx.source !== 'Visa/Master' && tx.source !== 'Amex' && tx.status === 'Pending'
+  ), [receivableTransactions]);
+
+  const pendingCardTxs = useMemo(() => receivableTransactions.filter(tx =>
+    (tx.source === 'Visa/Master' || tx.source === 'Amex') && tx.status === 'Pending'
+  ), [receivableTransactions]);
 
   const [payableBills, setPayableBills] = useState<PayableBill[]>([]);
-
   // Editor Config State
-  const [partnerSalesRecAcc, setPartnerSalesRecAcc] = useState('');
-  const [settlementCardAcc, setSettlementCardAcc] = useState('');
-  const [cardSettlementAccs, setCardSettlementAccs] = useState<string[]>([]);
+  const [partnerSalesRecAcc, setPartnerSalesRecAcc] = useState(config?.partnerSalesRecAccId || '');
+  const [settlementCardAcc, setSettlementCardAcc] = useState(config?.settlementCardAccId || '');
+  const [cardSettlementAccs, setCardSettlementAccs] = useState<string[]>(config?.autoFeeAccIds || []);
+  const [partnerNameLabel, setPartnerNameLabel] = useState(config?.partnerNameLabel || 'Partner Sales');
+  const [isSaving, setIsSaving] = useState(false);
+
+  const handleSaveConfig = async () => {
+    if (!onSaveConfig) return;
+
+    setIsSaving(true);
+    try {
+      await onSaveConfig({
+        partnerSalesRecAccId: partnerSalesRecAcc,
+        settlementCardAccId: settlementCardAcc,
+        autoFeeAccIds: cardSettlementAccs,
+        partnerNameLabel
+      });
+      alert(`✅ Configuration Saved Successfully!\n\nPartner Label: ${partnerNameLabel}\nPartner Account: ${accounts.find(a => a.id === partnerSalesRecAcc)?.name || 'Not Set'}\nCard Account: ${accounts.find(a => a.id === settlementCardAcc)?.name || 'Not Set'}`);
+    } catch (e) {
+      console.error("Save failed", e);
+      alert("Failed to save settings. Please check your connection.");
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+
 
   // Selection States
   const [selectedTxId, setSelectedTxId] = useState<string | null>(null);
@@ -63,7 +109,7 @@ const SettlementView: React.FC<Props> = ({ role, accounts, customers }) => {
     sourceAccount: accounts.find(a => a.type === AccountType.PETTY_CASH)?.id || '',
   });
 
-  const selectedTx = useMemo(() => receivableTxs.find(t => t.id === selectedTxId), [selectedTxId, receivableTxs]);
+  const selectedTx = useMemo(() => receivableTransactions.find(t => t.id === selectedTxId), [selectedTxId, receivableTransactions]);
   const selectedCust = useMemo(() => customers.find(c => c.id === selectedCustId), [selectedCustId, customers]);
 
   const scPercentage = useMemo(() => {
@@ -73,25 +119,191 @@ const SettlementView: React.FC<Props> = ({ role, accounts, customers }) => {
   }, [selectedTx, form.serviceCharge]);
 
   const cardSettlementTotal = useMemo(() => {
-    return receivableTxs.filter(tx => selectedTxIds.includes(tx.id)).reduce((acc, tx) => acc + tx.amount, 0);
-  }, [selectedTxIds, receivableTxs]);
+    return receivableTransactions.filter(tx => selectedTxIds.includes(tx.id)).reduce((acc, tx) => acc + tx.amount, 0);
+  }, [selectedTxIds, receivableTransactions]);
 
-  const handlePartnerSettle = () => {
-    if (!selectedTxId) return;
-    // Transactional logic: move money to accounts, update ledger
-    setSelectedTxId(null);
-    setForm({ ...form, cash: '', card: '', expense: '', serviceCharge: '' });
+  const handlePartnerSettle = async () => {
+    if (!selectedTxId || !onUpdateReceivable || !selectedTx || !onSaveAccount || !onAddLedgerEntry) return;
+
+    const netAmount = toCents(form.bankTransfer); // Amount actually received in bank
+    const feeAmount = selectedTx.amount - netAmount; // Difference is commission/expense
+
+    // 1. Get Accounts
+    const bankAcc = accounts.find(a => a.id === form.bankAccount);
+    const partnerAcc = accounts.find(a => a.id === config?.partnerSalesRecAccId); // The pending asset account
+    const expenseAcc = accounts.find(a => a.id === form.expense); // Dedicated expense account for commissions if selected
+
+    if (!bankAcc || !partnerAcc) {
+      alert("Please select a valid Bank Account and ensure Partner Account is configured.");
+      return;
+    }
+
+    try {
+      // 2. Credit Pending Account (Reduce Asset) - FULL AMOUNT
+      await onSaveAccount({ ...partnerAcc, currentBalance: partnerAcc.currentBalance - selectedTx.amount });
+
+      // 3. Debit Bank Account (Increase Asset) - NET AMOUNT
+      await onSaveAccount({ ...bankAcc, currentBalance: bankAcc.currentBalance + netAmount });
+
+      // 4. Debit Expense Account (Increase Expense) - FEE AMOUNT
+      // If user selected an expense account for the difference
+      if (feeAmount > 0 && expenseAcc) {
+        // Note: Expenses are usually positive balance in this system? Checking Ops View... 
+        // Yes, Expenses increase.
+        await onSaveAccount({ ...expenseAcc, currentBalance: expenseAcc.currentBalance + feeAmount });
+      }
+
+      // 5. Update Transaction Status
+      await onUpdateReceivable({ ...selectedTx, status: 'Settled' });
+
+      // 6. Ledger Entry
+      await onAddLedgerEntry({
+        id: crypto.randomUUID(),
+        date: new Date().toISOString(),
+        description: `Settlement: ${selectedTx.source} (${selectedTx.date})`,
+        amount: selectedTx.amount,
+        type: 'Transfer',
+        debitAccountId: bankAcc.id, // Main flow
+        creditAccountId: partnerAcc.id,
+        relatedId: selectedTx.id
+      });
+
+      setSelectedTxId(null);
+      setForm({ ...form, cash: '', card: '', expense: '', serviceCharge: '', bankTransfer: '' });
+      alert(`Settled! \nReceived: ${formatCurrency(netAmount)}\nFees: ${formatCurrency(feeAmount)}`);
+
+    } catch (e) {
+      console.error(e);
+      alert("Error processing settlement.");
+    }
   };
 
-  const handleCardSettle = () => {
-    // Logic: Physical cash input, remainder is bank fee expense
-    setSelectedTxIds([]);
-    setForm({ ...form, cash: '' });
+  const handleCardSettle = async () => {
+    if (!onUpdateReceivable || !onSaveAccount || !onAddLedgerEntry) return;
+
+    // Logic: Total selected amount vs Amount hitting bank
+    const totalAmount = cardSettlementTotal;
+    const receivedAmount = toCents(form.cash); // Using 'cash' field for 'Amount Received' in UI
+    const feeAmount = totalAmount - receivedAmount;
+
+    // 1. Get Accounts
+    // For cards, usually Settled to Bank, from "Card Pending"
+    const bankAcc = accounts.find(a => a.id === form.cardAccount); // Renaming field in head, assuming user picks target here
+    // Wait, form.cardAccount is likely the TARGET. 
+    // We need the SOURCE pending account. 
+    // In DailyOps we saved to 'cardAcc' -> 'config.cardAccountId'.
+    // In SettlementConfig we have 'settlementCardAccId' which might be the TARGET or SOURCE.
+    // Let's assume config.settlementCardAccId is the TARGET (Bank) where money lands?
+    // Actually, looking at Editor, 'settlementCardAccId' is labeled "Target Card Payment Account". 
+    // So the PENDING account must be the one from Daily Ops... which we might not have purely from Settlement Config.
+    // However, the Transaction object has `accountId` stored on it! We should use that.
+
+    const targetAcc = accounts.find(a => a.id === form.cardAccount); // User selected target
+
+    if (!targetAcc) {
+      alert("Please select a target account.");
+      return;
+    }
+
+    try {
+      // Batch Process
+      for (const id of selectedTxIds) {
+        const tx = receivableTransactions.find(t => t.id === id);
+        if (tx) {
+          // Credit Pending Account (Source)
+          const sourceAcc = accounts.find(a => a.id === tx.accountId);
+          if (sourceAcc) {
+            await onSaveAccount({ ...sourceAcc, currentBalance: sourceAcc.currentBalance - tx.amount });
+          }
+          await onUpdateReceivable({ ...tx, status: 'Settled' });
+        }
+      }
+
+      // Debit Target Account (Bank) - Net Amount
+      await onSaveAccount({ ...targetAcc, currentBalance: targetAcc.currentBalance + receivedAmount });
+
+      // Ledger? One big entry?
+      await onAddLedgerEntry({
+        id: crypto.randomUUID(),
+        date: new Date().toISOString(),
+        description: `Card Settlement (Batch of ${selectedTxIds.length})`,
+        amount: totalAmount,
+        type: 'Transfer',
+        debitAccountId: targetAcc.id,
+        creditAccountId: 'VARIOUS_PENDING',
+        metadata: { fees: feeAmount }
+      });
+
+      setSelectedTxIds([]);
+      setForm({ ...form, cash: '' });
+      alert("Card Payment Reconciled!");
+    } catch (e) {
+      console.error(e);
+      alert("Error settling cards.");
+    }
   };
 
-  const handleCustSettle = () => {
-    setSelectedCustId(null);
-    setForm({ ...form, cash: '', bankTransfer: '' });
+  const handleCustSettle = async () => {
+    if (!selectedCustId || !selectedCust || !onSaveCustomer || !onSaveAccount || !onAddLedgerEntry) return;
+
+    const paymentAmount = toCents(form.cash);
+    if (paymentAmount <= 0) {
+      alert("Please enter a valid amount.");
+      return;
+    }
+
+    // 1. Get Accounts
+    // Target: Where is the money going? (Bank/Cash)
+    const targetAcc = accounts.find(a => a.id === form.bankAccount);
+    // Source Account: "Customer Credit Receivable" (Asset) - configured in DailyOps, but maybe we need it here too?
+    // Let's rely on finding a general "Receivable" account if not strictly configured, or just update the Customer object primarily.
+    // Ideally, we debit Cash, Credit Receivable.
+
+    // We need to know which Receivable Account tracks this customer's debt. 
+    // For now, let's find the first generic Receivable account if specific one isn't in config.
+    const receivableAcc = accounts.find(a => a.type === AccountType.RECEIVABLE); // Fallback
+
+    if (!targetAcc) {
+      alert("Please select a target Bank/Cash account.");
+      return;
+    }
+
+    try {
+      // 2. Update Customer Debt (Reduce)
+      await onSaveCustomer({
+        ...selectedCust,
+        outstandingBalance: Math.max(0, selectedCust.outstandingBalance - paymentAmount),
+        lastActive: new Date().toISOString()
+      });
+
+      // 3. Update Financial Accounts
+      // Debit Cash/Bank
+      await onSaveAccount({ ...targetAcc, currentBalance: targetAcc.currentBalance + paymentAmount });
+
+      // Credit Receivable Control Account
+      if (receivableAcc) {
+        await onSaveAccount({ ...receivableAcc, currentBalance: receivableAcc.currentBalance - paymentAmount });
+      }
+
+      // 4. Ledger
+      await onAddLedgerEntry({
+        id: crypto.randomUUID(),
+        date: new Date().toISOString(),
+        description: `Customer Payment: ${selectedCust.name}`,
+        amount: paymentAmount,
+        type: 'Income',
+        debitAccountId: targetAcc.id,
+        creditAccountId: receivableAcc?.id || 'CUSTOMER_DEBT'
+      });
+
+      setSelectedCustId(null);
+      setForm({ ...form, cash: '' });
+      alert(`Payment Received: ${formatCurrency(paymentAmount)}\nNew Balance: ${formatCurrency(Math.max(0, selectedCust.outstandingBalance - paymentAmount))}`);
+
+    } catch (e) {
+      console.error(e);
+      alert("Failed to process payment.");
+    }
   };
 
   const handlePayableSettle = () => {
@@ -108,10 +320,13 @@ const SettlementView: React.FC<Props> = ({ role, accounts, customers }) => {
     <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 animate-in fade-in duration-500">
       <div className="glass p-8 rounded-[2.5rem] space-y-6">
         <h3 className="text-2xl font-black text-white flex items-center gap-3">
-          <Smartphone className="text-indigo-400" /> Pending Partner Sales
+          <Smartphone className="text-indigo-400" /> Pending {partnerNameLabel} Sales
         </h3>
         <div className="space-y-3">
-          {receivableTxs.filter(tx => tx.source !== 'Visa/Master' && tx.source !== 'Amex' && tx.status === 'Pending').map(tx => (
+          {pendingPartnerTxs.length === 0 && (
+            <p className="text-slate-500 text-sm">No pending {partnerNameLabel} transactions found.</p>
+          )}
+          {pendingPartnerTxs.map(tx => (
             <button
               key={tx.id}
               onClick={() => setSelectedTxId(tx.id)}
@@ -181,11 +396,23 @@ const SettlementView: React.FC<Props> = ({ role, accounts, customers }) => {
   const renderCards = () => (
     <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 animate-in fade-in duration-500">
       <div className="glass p-8 rounded-[2.5rem] space-y-6">
+        <div className="bg-slate-800 text-slate-300 p-4 mb-6 rounded-xl font-mono text-xs overflow-x-auto border border-slate-700">
+          <p className="font-bold text-white mb-2">DEBUG DIAGNOSTICS:</p>
+          <p>Total Raw Transactions: {receivableTransactions.length}</p>
+          <p>Partner Pending: {pendingPartnerTxs.length}</p>
+          <p>Card Pending: {pendingCardTxs.length}</p>
+          {receivableTransactions.length > 0 && (
+            <div className="mt-2 p-2 bg-black rounded">
+              <p className="text-emerald-400">First Transaction Raw Data:</p>
+              <pre>{JSON.stringify(receivableTransactions[0], null, 2)}</pre>
+            </div>
+          )}
+        </div>
         <h3 className="text-2xl font-black text-white flex items-center gap-3">
           <CreditCard className="text-emerald-400" /> Terminal Payments
         </h3>
         <div className="space-y-3">
-          {receivableTxs.filter(tx => (tx.source === 'Visa/Master' || tx.source === 'Amex') && tx.status === 'Pending').map(tx => (
+          {pendingCardTxs.map(tx => (
             <button
               key={tx.id}
               onClick={() => {
@@ -489,7 +716,13 @@ const SettlementView: React.FC<Props> = ({ role, accounts, customers }) => {
           </div>
         </div>
 
-        <button className="w-full bg-slate-800 hover:bg-slate-700 text-white font-black py-4 rounded-2xl uppercase tracking-widest text-xs transition-all">Save Settlement Rules</button>
+        <button
+          onClick={handleSaveConfig}
+          disabled={isSaving}
+          className={`w-full ${isSaving ? 'bg-slate-700 cursor-wait' : 'bg-slate-800 hover:bg-slate-700'} text-white font-black py-4 rounded-2xl uppercase tracking-widest text-xs transition-all flex items-center justify-center gap-2`}
+        >
+          {isSaving ? 'Saving Changes...' : 'Save Settlement Rules'}
+        </button>
       </div>
     </div>
   );
@@ -531,6 +764,6 @@ const SettlementView: React.FC<Props> = ({ role, accounts, customers }) => {
       )}
     </div>
   );
-};
+}
 
 export default SettlementView;

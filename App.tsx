@@ -16,7 +16,22 @@ import {
   LogOut,
   Loader2
 } from 'lucide-react';
-import { ViewType, UserRole, User, Account, Customer, DailyOpsConfig, Vendor, ExpenseCategory, ExpenseTransaction, ExpenseTemplate, DailyOpsSession } from './types';
+import {
+  Account,
+  AccountType,
+  Customer,
+  DailyOpsConfig,
+  DailyOpsSession,
+  ExpenseCategory,
+  ExpenseTemplate,
+  ExpenseTransaction,
+  User,
+  UserRole,
+  Vendor,
+  SettlementConfig,
+  ReceivableTransaction,
+  ViewType
+} from './types';
 import { AuthProvider, useAuth } from './components/AuthContext';
 import LoginPage from './components/LoginPage';
 import DashboardView from './components/DashboardView';
@@ -80,6 +95,17 @@ const AppContent: React.FC = () => {
     removeItem: deleteExpenseTemplate
   } = useFirestoreSync<ExpenseTemplate>('expenseTemplates', [], undefined, { enabled: !!user });
 
+  const {
+    data: dailyOpsSessions,
+    addOrUpdateItem: addOrUpdateSession
+  } = useFirestoreSync<DailyOpsSession>('daily_ops_sessions', [], 'date', { enabled: !!user });
+
+  // Receivable Transactions (Settlement)
+  const {
+    data: receivableTransactions,
+    addOrUpdateItem: addOrUpdateReceivable
+  } = useFirestoreSync<ReceivableTransaction>('receivable_transactions', [], 'date', { enabled: !!user });
+
   // Multi-state loading check
   const loading = authLoading || accountsLoading || customersLoading;
 
@@ -97,6 +123,7 @@ const AppContent: React.FC = () => {
   if (!user) {
     return <LoginPage />;
   }
+  const dailyOpsConfig = (settings || []).find(s => s.id === 'dailyOps') as DailyOpsConfig;
 
   const navItems = [
     { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
@@ -109,29 +136,23 @@ const AppContent: React.FC = () => {
     { id: 'settings', label: 'Settings', icon: SettingsIcon },
   ];
 
-  const dailyOpsConfig = settings.find(s => s.id === 'dailyOps') as DailyOpsConfig;
-
-  const {
-    data: dailyOpsSessions,
-    addOrUpdateItem: addOrUpdateSession
-  } = useFirestoreSync<DailyOpsSession>('sessions', [], 'date', { enabled: !!user });
-
   const renderContent = () => {
     switch (activeView) {
       case 'dashboard': return <DashboardView accounts={accounts} />;
       case 'money-lab': return <MoneyLabView role={user.role} accounts={accounts} onSaveAccount={addOrUpdateAccount} />;
       case 'daily-ops':
+        if (!dailyOpsSessions) return <Loader2 className="animate-spin text-slate-500 mx-auto mt-20" />;
         return (
           <DailyOpsView
             role={user.role}
-            accounts={accounts}
-            customers={customers}
+            accounts={accounts || []}
+            customers={customers || []}
             config={dailyOpsConfig}
             currentUser={{ name: user.name, id: user.id }}
-            categories={expenseCategories}
-            vendors={vendors}
-            templates={expenseTemplates}
-            sessions={dailyOpsSessions}
+            categories={expenseCategories || []}
+            vendors={vendors || []}
+            templates={expenseTemplates || []}
+            sessions={dailyOpsSessions || []}
             onSaveConfig={(cfg) => addOrUpdateSetting({ ...cfg, id: 'dailyOps' })}
             onSaveAccount={addOrUpdateAccount}
             onSaveCustomer={addOrUpdateCustomer}
@@ -141,6 +162,7 @@ const AppContent: React.FC = () => {
             onSaveVendor={addOrUpdateVendor}
             onSaveTemplate={addOrUpdateExpenseTemplate}
             onSaveSession={addOrUpdateSession}
+            onAddReceivable={addOrUpdateReceivable}
           />
         );
       case 'staff-hub': return <StaffHubView role={user.role} accounts={accounts} />;
@@ -164,7 +186,22 @@ const AppContent: React.FC = () => {
             onDeleteTemplate={deleteExpenseTemplate}
           />
         );
-      case 'settlement': return <SettlementView role={user.role} accounts={accounts} customers={customers} />;
+      case 'settlement':
+        const settlementConfig = (settings || []).find(s => s.id === 'settlement') as SettlementConfig;
+        return (
+          <SettlementView
+            role={user.role}
+            accounts={accounts || []}
+            customers={customers || []}
+            config={settlementConfig}
+            onSaveConfig={(cfg) => addOrUpdateSetting({ ...cfg, id: 'settlement' })}
+            receivableTransactions={receivableTransactions || []}
+            onUpdateReceivable={addOrUpdateReceivable}
+            onSaveAccount={addOrUpdateAccount}
+            onAddLedgerEntry={addLedgerEntry}
+            onSaveCustomer={addOrUpdateCustomer}
+          />
+        );
       case 'reports': return <ReportsView />;
       case 'settings': return <SettingsView
         currentUser={user}
@@ -255,7 +292,20 @@ const AppContent: React.FC = () => {
         </header>
 
         <div className="flex-1 overflow-y-auto px-4 lg:px-10 pb-24 lg:pb-10 pt-4">
-          {renderContent()}
+          {(() => {
+            try {
+              return renderContent();
+            } catch (e) {
+              console.error("Render Error:", e);
+              return (
+                <div className="p-10 text-center text-rose-500">
+                  <h2 className="text-2xl font-bold">Application Error</h2>
+                  <p>Check console for details.</p>
+                  <pre className="mt-4 text-xs bg-black p-4 rounded text-left whitespace-pre-wrap">{(e as Error).message}</pre>
+                </div>
+              );
+            }
+          })()}
         </div>
 
         {/* Mobile Bottom Navigation */}
