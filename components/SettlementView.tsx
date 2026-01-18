@@ -53,12 +53,21 @@ const SettlementView: React.FC<Props> = ({
   const [activeTab, setActiveTab] = useState<'partners' | 'cards' | 'customers' | 'payables' | 'bank' | 'editor'>('partners');
 
   // Use props for data
+  // Update these two filters at the top of the component
   const pendingPartnerTxs = useMemo(() => receivableTransactions.filter(tx =>
-    tx.source !== 'Visa/Master' && tx.source !== 'Amex' && tx.status === 'Pending'
+    tx.source !== 'Visa/Master'
+    && tx.source !== 'Amex'
+    && !tx.source.includes('Partner Split') // HIDE splits from Partners
+    && tx.status === 'Pending'
   ), [receivableTransactions]);
 
   const pendingCardTxs = useMemo(() => receivableTransactions.filter(tx =>
-    (tx.source === 'Visa/Master' || tx.source === 'Amex') && tx.status === 'Pending'
+    (
+      tx.source === 'Visa/Master'
+      || tx.source === 'Amex'
+      || tx.source.includes('Partner Split') // SHOW splits in Cards
+    )
+    && tx.status === 'Pending'
   ), [receivableTransactions]);
 
   const [payableBills, setPayableBills] = useState<PayableBill[]>([]);
@@ -165,10 +174,11 @@ const SettlementView: React.FC<Props> = ({
     }
 
     try {
-      // 2. Credit Pending Account (Reduce Asset) - FULL AMOUNT
-      // We reduce the full amount because the transaction is fully settled.
-      // Expenses are just "money we didn't get", so they are implicitly accounted for by reducing the asset.
-      await onSaveAccount({ ...partnerAcc, currentBalance: partnerAcc.currentBalance - selectedTx.amount });
+      // 2. Credit Pending Account (Reduce Asset)
+      // We reduce the total amount MINUS the card amount. 
+      // The card amount stays in this account until the Card Settlement hub moves it to the Bank.
+      const amountToDeduct = selectedTx.amount - cardAmount;
+      await onSaveAccount({ ...partnerAcc, currentBalance: partnerAcc.currentBalance - amountToDeduct });
 
       // 3. Debit Petty Cash (Increase Asset) - CASH PORTION
       if (cashAmount > 0 && pettyCashAcc) {
@@ -176,18 +186,16 @@ const SettlementView: React.FC<Props> = ({
       }
 
       // 4. Handle Card Payment Portion
-      if (cardAmount > 0 && cardTargetAcc) {
-        // Increase balance of target card account (Asset)
-        await onSaveAccount({ ...cardTargetAcc, currentBalance: cardTargetAcc.currentBalance + cardAmount });
-
-        // Create NEW Pending Transaction for this Card Amount
+      if (cardAmount > 0) {
+        // We do NOT credit the bank yet. We create a pending transaction.
+        // The money remains in 'partnerAcc' (accountId) until settled in the Cards tab.
         await onUpdateReceivable({
           id: Math.random().toString(36).substr(2, 9),
           date: new Date().toISOString().split('T')[0],
           source: `Partner Split: ${selectedTx.source}`,
           amount: cardAmount,
           status: 'Pending',
-          accountId: cardTargetAcc.id
+          accountId: partnerAcc.id // Vital: Links to the account holding the funds
         });
       }
 
@@ -215,19 +223,8 @@ const SettlementView: React.FC<Props> = ({
         });
       }
 
-      if (cardAmount > 0 && cardTargetAcc) {
-        await onAddLedgerEntry({
-          id: Math.random().toString(36).substr(2, 9),
-          desc: `Settlement Card Split: ${selectedTx.source}`,
-          account: cardTargetAcc.name,
-          type: 'Income',
-          amount: cardAmount,
-          date,
-          time,
-          user: role,
-          status: 'Posted'
-        });
-      }
+      // NO LEDGER ENTRY for Card yet - that happens on Card Settle
+
 
       // We still record the "Payout" from the Partner Account to track that it was cleared
       // This entry represents the asset reduction.
@@ -262,24 +259,19 @@ const SettlementView: React.FC<Props> = ({
   const handleCardSettle = async () => {
     if (!onUpdateReceivable || !onSaveAccount || !onAddLedgerEntry) return;
 
-    // Logic: Total selected amount vs Amount hitting bank
-    const totalAmount = cardSettlementTotal;
-    const receivedAmount = toCents(form.cash); // Using 'cash' field for 'Amount Received' in UI
-    const feeAmount = totalAmount - receivedAmount;
+    // 1. Logic: Total selected vs Amount hitting bank
+    const totalAmount = cardSettlementTotal; // Gross (e.g., 10000)
+    const receivedAmount = toCents(form.cash); // Net (e.g., 9800)
+    const feeAmount = totalAmount - receivedAmount; // Fee (e.g., 200)
 
-    // 1. Get Accounts
-    // For cards, usually Settled to Bank, from "Card Pending"
-    const bankAcc = accounts.find(a => a.id === form.cardAccount); // Renaming field in head, assuming user picks target here
-    // Wait, form.cardAccount is likely the TARGET. 
-    // We need the SOURCE pending account. 
-    // In DailyOps we saved to 'cardAcc' -> 'config.cardAccountId'.
-    // In SettlementConfig we have 'settlementCardAccId' which might be the TARGET or SOURCE.
-    // Let's assume config.settlementCardAccId is the TARGET (Bank) where money lands?
-    // Actually, looking at Editor, 'settlementCardAccId' is labeled "Target Card Payment Account". 
-    // So the PENDING account must be the one from Daily Ops... which we might not have purely from Settlement Config.
-    // However, the Transaction object has `accountId` stored on it! We should use that.
+    // 2. Get Targets
+    const targetAcc = accounts.find(a => a.id === form.cardAccount); // Bank Account
 
-    const targetAcc = accounts.find(a => a.id === form.cardAccount); // User selected target
+    // Check if we should apply Auto-Fee Logic
+    // We look at the first selected transaction to find the Source Account
+    const firstTx = receivableTransactions.find(t => selectedTxIds[0] === t.id);
+    const sourceAccountId = firstTx?.accountId;
+    const isAutoFeeEnabled = sourceAccountId && config?.autoFeeAccIds?.includes(sourceAccountId);
 
     if (!targetAcc) {
       alert("Please select a target account.");
@@ -287,16 +279,16 @@ const SettlementView: React.FC<Props> = ({
     }
 
     try {
-      // Batch Process
+      // 3. Batch Process: Clear Pending Transactions
       for (const id of selectedTxIds) {
         const tx = receivableTransactions.find(t => t.id === id);
         if (tx) {
-          // Credit Pending Account (Source)
+          // Credit Pending Account (Source) - Reduce by GROSS amount to clear it
           const sourceAcc = accounts.find(a => a.id === tx.accountId);
           if (sourceAcc) {
             await onSaveAccount({ ...sourceAcc, currentBalance: sourceAcc.currentBalance - tx.amount });
 
-            // Record source side ledger entry
+            // Record source side ledger entry (Clearing the pending state)
             await onAddLedgerEntry({
               id: Math.random().toString(36).substr(2, 9),
               desc: `Card Settlement: -> ${targetAcc.name}`,
@@ -313,28 +305,65 @@ const SettlementView: React.FC<Props> = ({
         }
       }
 
-      // Debit Target Account (Bank) - Net Amount
+      // 4. Update Target Account (Bank) Balance
+      // We always increase by the ACTUAL money received (Net), regardless of display logic
       await onSaveAccount({ ...targetAcc, currentBalance: targetAcc.currentBalance + receivedAmount });
 
-      // 3. Ledger Entry for Target Account
+      // 5. Ledger Entries for Target Account
       const date = new Date().toISOString().split('T')[0];
       const time = new Date().toLocaleTimeString();
 
-      await onAddLedgerEntry({
-        id: Math.random().toString(36).substr(2, 9),
-        desc: `Card Settlement Batch Received (${selectedTxIds.length} txs)`,
-        account: targetAcc.name,
-        type: 'Income',
-        amount: receivedAmount,
-        date,
-        time,
-        user: role,
-        status: 'Posted'
-      });
+      if (isAutoFeeEnabled && feeAmount > 0) {
+        // --- AUTO FEE LOGIC: SHOW GROSS AND FEE SPLIT ---
+
+        // Entry 1: Gross Amount (Income)
+        await onAddLedgerEntry({
+          id: Math.random().toString(36).substr(2, 9),
+          desc: `Card Settlement (Gross): ${selectedTxIds.length} txs`,
+          account: targetAcc.name,
+          type: 'Income',
+          amount: totalAmount, // Show 10000
+          date,
+          time,
+          user: role,
+          status: 'Posted'
+        });
+
+        // Entry 2: Fee Deduction (Expense)
+        await onAddLedgerEntry({
+          id: Math.random().toString(36).substr(2, 9),
+          desc: `Bank Transaction Fee (Auto-Calc)`,
+          account: targetAcc.name,
+          type: 'Expense',
+          amount: feeAmount, // Show 200
+          date,
+          time,
+          user: role,
+          status: 'Posted'
+        });
+
+      } else {
+        // --- STANDARD LOGIC: SHOW NET ONLY ---
+        await onAddLedgerEntry({
+          id: Math.random().toString(36).substr(2, 9),
+          desc: `Card Settlement Received (${selectedTxIds.length} txs)`,
+          account: targetAcc.name,
+          type: 'Income',
+          amount: receivedAmount, // Show 9800
+          date,
+          time,
+          user: role,
+          status: 'Posted'
+        });
+      }
 
       setSelectedTxIds([]);
       setForm({ ...form, cash: '' });
-      alert("Card Payment Reconciled!");
+      alert(isAutoFeeEnabled && feeAmount > 0
+        ? `Reconciled! Split recorded: Gross ${formatCurrency(totalAmount)} - Fees ${formatCurrency(feeAmount)}`
+        : "Card Payment Reconciled!"
+      );
+
     } catch (e) {
       console.error(e);
       alert("Error settling cards.");
